@@ -226,8 +226,8 @@ export default function CoordinatorPage() {
 
   const mapEl = (
     <MapContainer
-      center={[25.5741, 85.1576]}
-      zoom={8}
+      center={[20.5937, 78.9629]}
+      zoom={5}
       style={{ height: "100%", width: "100%", background: "#111" }}
       zoomControl={true}
     >
