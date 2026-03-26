@@ -43,7 +43,7 @@ export default function LandingPage() {
           DisasterLink
         </div>
         <div style={{ color: "var(--text-muted)", fontSize: 14, maxWidth: 360 }}>
-          Real-time disaster resource coordination. <br />
+          India's Real-Time Disaster Coordination Platform. <br />
           Choose your role to continue.{" "}
         </div>
       </div>
