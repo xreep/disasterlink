@@ -1,0 +1,21 @@
+packages:
+  "framer-motion": "For page transitions and micro-interactions"
+  "recharts": "Data visualization for the coordinator dashboard"
+  "date-fns": "For formatting timestamps"
+  "react-hook-form": "Form state management"
+  "@hookform/resolvers": "Zod validation resolver for forms"
+  "zod": "Schema validation"
+  "clsx": "Class merging"
+  "tailwind-merge": "Tailwind class merging"
+
+images:
+  - path: "artifacts/disaster-platform/public/images/hero-bg.png"
+    description: "Abstract digital map network with glowing nodes in deep navy blue and emergency red, high tech interface style, dark mode, futuristic emergency operations center aesthetic"
+    aspect_ratio: "16:9"
+  - path: "artifacts/disaster-platform/public/images/map-texture.png"
+    description: "Subtle dark topographical map texture with grid lines, deep indigo background, low contrast, UI element background"
+    aspect_ratio: "16:9"
+
+notes:
+  - "Assuming @workspace/api-client-react provides all generated TanStack Query hooks"
+  - "App uses local storage to persist volunteer and affected user session IDs"
