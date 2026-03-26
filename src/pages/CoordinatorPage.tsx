@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
-import { useDisaster } from "../DisasterContext";
+import { useDisaster, DISASTER_TYPES, type DisasterType } from "../DisasterContext";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -178,7 +178,7 @@ function ResourcesPanel() {
 
 export default function CoordinatorPage() {
   const navigate = useNavigate();
-  const { disasterName } = useDisaster();
+  const { disasterName, disasterType, setDisasterType } = useDisaster();
   const [filter, setFilter] = useState<"All" | "Critical" | "Active">("All");
   const [feed, setFeed] = useState(INITIAL_FEED);
   const [lastSync, setLastSync] = useState("just now");
@@ -362,6 +362,29 @@ export default function CoordinatorPage() {
 
           {/* Overview tab */}
           <div style={{ flex: 1, overflowY: "auto", display: mobileTab === "Overview" ? "block" : "none", padding: 16 }}>
+            {/* Disaster type selector */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>
+                Active Disaster Type
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {DISASTER_TYPES.map((type: DisasterType) => (
+                  <button
+                    key={type}
+                    onClick={() => setDisasterType(type)}
+                    style={{
+                      fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
+                      border: `1px solid ${disasterType === type ? "var(--text)" : "var(--border)"}`,
+                      background: disasterType === type ? "var(--text)" : "var(--surface)",
+                      color: disasterType === type ? "var(--bg)" : "var(--text-muted)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
               {STATS.map(s => (
                 <div key={s.label}>
@@ -398,6 +421,29 @@ export default function CoordinatorPage() {
         <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
           {/* LEFT */}
           <div style={{ width: 240, borderRight: "1px solid var(--border)", padding: "20px 16px", overflowY: "auto", flexShrink: 0, display: "flex", flexDirection: "column", background: "var(--bg)" }}>
+            {/* Disaster type selector */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>
+                Active Disaster Type
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {DISASTER_TYPES.map((type: DisasterType) => (
+                  <button
+                    key={type}
+                    onClick={() => setDisasterType(type)}
+                    style={{
+                      fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
+                      border: `1px solid ${disasterType === type ? "var(--text)" : "var(--border)"}`,
+                      background: disasterType === type ? "var(--text)" : "var(--surface)",
+                      color: disasterType === type ? "var(--bg)" : "var(--text-muted)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+            </div>
             <SitrepPanel />
             <NeedsPanel />
             <SystemStatus />
