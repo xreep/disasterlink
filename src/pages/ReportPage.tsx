@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Plus, Minus, ArrowLeft, ChevronDown } from "lucide-react";
+import { MapPin, Plus, Minus, ArrowLeft, ChevronDown, Sun, Moon } from "lucide-react";
 import { INDIA_STATES, getDistricts } from "../lib/india-geo";
+import { useTheme } from "../ThemeContext";
 
-const NEED_TYPES = ["Food", "Water", "Medical", "Shelter", "Rescue"];
+const NEED_TYPES = ["Food & Water", "Medical Help", "Shelter", "Rescue", "Evacuation", "Other"];
 const SEVERITY_OPTIONS = [
   { label: "Critical", color: "#dc2626" },
   { label: "Urgent", color: "#d97706" },
@@ -16,6 +17,7 @@ function generateTicketId() {
 
 export default function ReportPage() {
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [selectedState, setSelectedState] = useState("");
@@ -168,7 +170,12 @@ export default function ReportPage() {
         <div style={topBar}>
           <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px" }}>DisasterLink</span>
           <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-muted)" }}>Emergency Request</span>
-          <button style={backBtn} onClick={() => navigate("/")}><ArrowLeft size={14} /> Home</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button style={backBtn} onClick={() => navigate("/")}><ArrowLeft size={14} /> Home</button>
+            <button onClick={toggleTheme} aria-label="Toggle theme" style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: "pointer", color: "var(--text-muted)" }}>
+              {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
+            </button>
+          </div>
         </div>
         <div style={{ ...bodyStyle, paddingTop: 48 }}>
           <div style={{ marginBottom: 40 }}>
@@ -237,7 +244,12 @@ export default function ReportPage() {
       <div style={topBar}>
         <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px" }}>DisasterLink</span>
         <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-muted)" }}>Emergency Request</span>
-        <button style={backBtn} onClick={() => navigate("/")}><ArrowLeft size={14} /> Home</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button style={backBtn} onClick={() => navigate("/")}><ArrowLeft size={14} /> Home</button>
+          <button onClick={toggleTheme} aria-label="Toggle theme" style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: "pointer", color: "var(--text-muted)" }}>
+            {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
+          </button>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} style={bodyStyle}>

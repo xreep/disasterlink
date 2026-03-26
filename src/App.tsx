@@ -1,41 +1,9 @@
 import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Moon, Sun } from "lucide-react";
-import { useTheme } from "./ThemeContext";
 import ReportPage from "@/pages/ReportPage";
 import VolunteerPage from "@/pages/VolunteerPage";
 import CoordinatorPage from "@/pages/CoordinatorPage";
 import LandingPage from "@/pages/LandingPage";
-
-function ThemeToggle({ offset }: { offset: number }) {
-  const { theme, toggleTheme } = useTheme();
-  const isDark = theme === "dark";
-  return (
-    <button
-      onClick={toggleTheme}
-      aria-label="Toggle theme"
-      style={{
-        position: "fixed",
-        bottom: 24,
-        right: 24,
-        zIndex: 9999,
-        width: 40,
-        height: 40,
-        borderRadius: 6,
-        border: isDark ? "1px solid #1f1f1f" : "1px solid #e5e5e5",
-        background: isDark ? "#111111" : "#ffffff",
-        color: isDark ? "#ffffff" : "#0a0a0a",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        cursor: "pointer",
-        top: offset > 0 ? `calc(100vh - 64px + ${offset}px)` : undefined,
-      }}
-    >
-      {isDark ? <Sun size={16} /> : <Moon size={16} />}
-    </button>
-  );
-}
 
 type OfflineStatus = "offline" | "restored" | null;
 
@@ -97,7 +65,6 @@ export default function App() {
         </div>
       )}
       <div style={{ paddingTop: bannerVisible ? 36 : 0 }}>
-        <ThemeToggle offset={bannerVisible ? 36 : 0} />
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/report" element={<ReportPage />} />
