@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Navigation, ArrowLeft, Clock } from "lucide-react";
+import { useDisaster } from "../DisasterContext";
 
 type Severity = "Critical" | "Urgent" | "Moderate";
 type Tab = "Assigned" | "Open";
@@ -35,6 +36,7 @@ const SEVERITY_COLOR: Record<Severity, string> = {
 
 export default function VolunteerPage() {
   const navigate = useNavigate();
+  const { disasterName } = useDisaster();
   const [tab, setTab] = useState<Tab>("Assigned");
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
   const [statusOn, setStatusOn] = useState(true);
@@ -153,7 +155,7 @@ export default function VolunteerPage() {
         color: "#525252",
         padding: "6px 0",
       }}>
-        Active deployment zone: Bihar Flood Response
+        Active deployment zone: {disasterName}
       </div>
 
       {/* Content */}

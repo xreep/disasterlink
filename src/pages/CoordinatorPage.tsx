@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import { useDisaster } from "../DisasterContext";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -177,6 +178,7 @@ function ResourcesPanel() {
 
 export default function CoordinatorPage() {
   const navigate = useNavigate();
+  const { disasterName } = useDisaster();
   const [filter, setFilter] = useState<"All" | "Critical" | "Active">("All");
   const [feed, setFeed] = useState(INITIAL_FEED);
   const [lastSync, setLastSync] = useState("just now");
@@ -321,7 +323,7 @@ export default function CoordinatorPage() {
           DisasterLink
         </span>
         <span style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 500, color: "var(--text-muted)" }}>
-          Bihar Flood Response — Active Incident
+          {disasterName} — Active Incident
         </span>
         {!isMobile && (
           <span style={{ fontSize: 12, color: "var(--text-muted)", marginRight: 16, fontFamily: "monospace" }}>

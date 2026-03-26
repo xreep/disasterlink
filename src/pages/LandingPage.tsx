@@ -1,7 +1,9 @@
 import { useNavigate } from "react-router-dom";
+import { useDisaster, DISASTER_TYPES, type DisasterType } from "../DisasterContext";
 
 export default function LandingPage() {
   const navigate = useNavigate();
+  const { disasterType, disasterName, setDisasterType } = useDisaster();
 
   const btnBase: React.CSSProperties = {
     width: "100%",
@@ -29,7 +31,7 @@ export default function LandingPage() {
       justifyContent: "center",
       padding: "40px 24px",
     }}>
-      <div style={{ marginBottom: 32, textAlign: "center" }}>
+      <div style={{ marginBottom: 28, textAlign: "center" }}>
         <div style={{
           fontFamily: "monospace",
           fontSize: 28,
@@ -46,8 +48,43 @@ export default function LandingPage() {
         </div>
       </div>
 
+      {/* Disaster type selector */}
+      <div style={{ width: "100%", maxWidth: 360, marginBottom: 20 }}>
+        <div style={{
+          fontSize: 10,
+          fontWeight: 600,
+          color: "var(--text-muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.1em",
+          marginBottom: 8,
+        }}>
+          Active Disaster Type
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {DISASTER_TYPES.map((type: DisasterType) => (
+            <button
+              key={type}
+              onClick={() => setDisasterType(type)}
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                padding: "5px 12px",
+                borderRadius: 4,
+                border: `1px solid ${disasterType === type ? "var(--text)" : "var(--border)"}`,
+                background: disasterType === type ? "var(--text)" : "var(--surface)",
+                color: disasterType === type ? "var(--bg)" : "var(--text-muted)",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div style={{ fontSize: 12, color: "#525252", marginBottom: 20, textAlign: "center" }}>
-        Bihar Flood Response · 58 active requests · 34 volunteers deployed
+        {disasterName} · 58 active requests · 34 volunteers deployed
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 360 }}>
