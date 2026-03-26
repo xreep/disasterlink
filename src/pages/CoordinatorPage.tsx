@@ -1,7 +1,19 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
-import { useDisaster, DISASTER_TYPES, type DisasterType } from "../DisasterContext";
+import { Waves, Activity, Wind, Mountain, Sun, Factory, Flame, Thermometer } from "lucide-react";
+import { useDisaster, DISASTER_TYPES, DISASTER_CONFIG, type DisasterType } from "../DisasterContext";
+
+const DISASTER_ICONS: Record<DisasterType, React.ComponentType<{ size?: number; color?: string }>> = {
+  "Flood":               Waves,
+  "Earthquake":          Activity,
+  "Cyclone":             Wind,
+  "Landslide":           Mountain,
+  "Drought":             Sun,
+  "Industrial Accident": Factory,
+  "Fire":                Flame,
+  "Heatwave":            Thermometer,
+};
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -178,7 +190,7 @@ function ResourcesPanel() {
 
 export default function CoordinatorPage() {
   const navigate = useNavigate();
-  const { disasterName, disasterType, setDisasterType } = useDisaster();
+  const { disasterName, disasterType, disasterColor, setDisasterType } = useDisaster();
   const [filter, setFilter] = useState<"All" | "Critical" | "Active">("All");
   const [feed, setFeed] = useState(INITIAL_FEED);
   const [lastSync, setLastSync] = useState("just now");
@@ -322,7 +334,8 @@ export default function CoordinatorPage() {
         <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px", marginRight: 24 }}>
           DisasterLink
         </span>
-        <span style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 500, color: "var(--text-muted)" }}>
+        <span style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 500, color: "var(--text-muted)", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: disasterColor, flexShrink: 0, display: "inline-block" }} />
           {disasterName} — Active Incident
         </span>
         {!isMobile && (
@@ -367,22 +380,30 @@ export default function CoordinatorPage() {
               <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>
                 Active Disaster Type
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                {DISASTER_TYPES.map((type: DisasterType) => (
-                  <button
-                    key={type}
-                    onClick={() => setDisasterType(type)}
-                    style={{
-                      fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
-                      border: `1px solid ${disasterType === type ? "var(--text)" : "var(--border)"}`,
-                      background: disasterType === type ? "var(--text)" : "var(--surface)",
-                      color: disasterType === type ? "var(--bg)" : "var(--text-muted)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {type}
-                  </button>
-                ))}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                {DISASTER_TYPES.map((type: DisasterType) => {
+                  const Icon = DISASTER_ICONS[type];
+                  const meta = DISASTER_CONFIG[type];
+                  const isActive = disasterType === type;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => setDisasterType(type)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 7,
+                        padding: "8px 9px", borderRadius: 5, cursor: "pointer",
+                        border: `1px solid ${isActive ? meta.color : "var(--border)"}`,
+                        background: isActive ? `${meta.color}22` : "var(--surface)",
+                        textAlign: "left",
+                      }}
+                    >
+                      <Icon size={13} color={isActive ? meta.color : "#525252"} />
+                      <span style={{ fontSize: 12, fontWeight: isActive ? 600 : 400, color: isActive ? meta.color : "var(--text-muted)" }}>
+                        {type}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
@@ -426,22 +447,35 @@ export default function CoordinatorPage() {
               <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>
                 Active Disaster Type
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                {DISASTER_TYPES.map((type: DisasterType) => (
-                  <button
-                    key={type}
-                    onClick={() => setDisasterType(type)}
-                    style={{
-                      fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
-                      border: `1px solid ${disasterType === type ? "var(--text)" : "var(--border)"}`,
-                      background: disasterType === type ? "var(--text)" : "var(--surface)",
-                      color: disasterType === type ? "var(--bg)" : "var(--text-muted)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {type}
-                  </button>
-                ))}
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {DISASTER_TYPES.map((type: DisasterType) => {
+                  const Icon = DISASTER_ICONS[type];
+                  const meta = DISASTER_CONFIG[type];
+                  const isActive = disasterType === type;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => setDisasterType(type)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 9,
+                        padding: "7px 9px", borderRadius: 5, cursor: "pointer",
+                        border: `1px solid ${isActive ? meta.color : "transparent"}`,
+                        background: isActive ? `${meta.color}22` : "transparent",
+                        textAlign: "left", width: "100%",
+                      }}
+                    >
+                      <Icon size={13} color={isActive ? meta.color : "#525252"} />
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: isActive ? 600 : 400, color: isActive ? meta.color : "var(--text-muted)", lineHeight: 1.2 }}>
+                          {type}
+                        </div>
+                        <div style={{ fontSize: 10, color: "#525252", lineHeight: 1.3, marginTop: 1 }}>
+                          {meta.description}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             <SitrepPanel />
