@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Plus, Minus, ArrowLeft } from "lucide-react";
+import { MapPin, Plus, Minus, ArrowLeft, ChevronDown } from "lucide-react";
+import { INDIA_STATES, getDistricts } from "../lib/india-geo";
 
 const NEED_TYPES = ["Food", "Water", "Medical", "Shelter", "Rescue"];
 const SEVERITY_OPTIONS = [
@@ -17,7 +18,9 @@ export default function ReportPage() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [location, setLocation] = useState("");
+  const [selectedState, setSelectedState] = useState("");
+  const [selectedDistrict, setSelectedDistrict] = useState("");
+  const [landmark, setLandmark] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [needType, setNeedType] = useState<string | null>(null);
@@ -33,6 +36,13 @@ export default function ReportPage() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  const districts = selectedState ? getDistricts(selectedState) : [];
+
+  function handleStateChange(state: string) {
+    setSelectedState(state);
+    setSelectedDistrict("");
+  }
+
   function detectLocation() {
     if (!navigator.geolocation) return;
     setLocating(true);
@@ -41,7 +51,6 @@ export default function ReportPage() {
         const lat = +pos.coords.latitude.toFixed(5);
         const lng = +pos.coords.longitude.toFixed(5);
         setCoords({ lat, lng });
-        setLocation(`${lat}, ${lng}`);
         setLocating(false);
       },
       () => setLocating(false)
@@ -50,9 +59,12 @@ export default function ReportPage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!needType || !severity) return;
+    if (!needType || !severity || !selectedState || !selectedDistrict) return;
     setSubmitted(true);
   }
+
+  const locationString = [selectedDistrict, selectedState].filter(Boolean).join(", ")
+    + (landmark ? ` — ${landmark}` : "");
 
   const topBar: React.CSSProperties = {
     height: 48,
@@ -93,6 +105,42 @@ export default function ReportPage() {
     color: "var(--text)",
     background: "var(--input-bg)",
     outline: "none",
+    boxSizing: "border-box",
+  };
+
+  const selectWrapper: React.CSSProperties = {
+    position: "relative",
+    width: "100%",
+  };
+
+  const selectStyle: React.CSSProperties = {
+    width: "100%",
+    height: 48,
+    border: "1px solid var(--input-border)",
+    borderRadius: 6,
+    padding: "0 36px 0 14px",
+    fontSize: 14,
+    color: "var(--text)",
+    background: "var(--input-bg)",
+    outline: "none",
+    appearance: "none",
+    cursor: "pointer",
+    boxSizing: "border-box",
+  };
+
+  const selectDisabled: React.CSSProperties = {
+    ...selectStyle,
+    opacity: 0.45,
+    cursor: "not-allowed",
+  };
+
+  const chevronStyle: React.CSSProperties = {
+    position: "absolute",
+    right: 12,
+    top: "50%",
+    transform: "translateY(-50%)",
+    pointerEvents: "none",
+    color: "var(--text-muted)",
   };
 
   const backBtn: React.CSSProperties = {
@@ -155,6 +203,18 @@ export default function ReportPage() {
             </div>
           </div>
 
+          {locationString && (
+            <div style={{ marginBottom: 20, padding: "12px 14px", background: "var(--surface)", borderRadius: 6, border: "1px solid var(--border)" }}>
+              <div style={{ ...sectionLabel, marginBottom: 4 }}>Reported Location</div>
+              <div style={{ fontSize: 13, color: "var(--text)" }}>{locationString}</div>
+              {coords && (
+                <div style={{ marginTop: 4, fontSize: 11, color: "#525252", fontFamily: "monospace" }}>
+                  GPS: {coords.lat}° N, {coords.lng}° E
+                </div>
+              )}
+            </div>
+          )}
+
           <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.7 }}>
             Your request has been logged. A coordinator has been notified.
           </p>
@@ -169,6 +229,8 @@ export default function ReportPage() {
       </div>
     );
   }
+
+  const canSubmit = !!(needType && severity && selectedState && selectedDistrict);
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: "'Inter', sans-serif", color: "var(--text)" }}>
@@ -197,34 +259,80 @@ export default function ReportPage() {
         {/* Location */}
         <div style={{ marginBottom: 24 }}>
           <div style={sectionLabel}>Location</div>
-          <div style={{ position: "relative" }}>
-            <input
-              style={inputStyle}
-              placeholder="Enter your location or detect"
-              value={location}
-              onChange={e => { setLocation(e.target.value); setCoords(null); }}
-              required
-            />
-            <button
-              type="button"
-              onClick={detectLocation}
-              style={{
-                position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-                fontSize: 12, fontWeight: 500, color: "var(--text)",
-                background: "var(--surface)", border: "1px solid var(--border)",
-                borderRadius: 4, padding: "4px 10px", cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 4,
-              }}
-            >
-              <MapPin size={12} />
-              {locating ? "Detecting..." : "Detect"}
-            </button>
-          </div>
-          {coords && (
-            <div style={{ marginTop: 6, fontSize: 12, color: "#525252", fontFamily: "monospace" }}>
-              {coords.lat}° N, {coords.lng}° E
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {/* State */}
+            <div>
+              <label style={fieldLabel}>State / Union Territory</label>
+              <div style={selectWrapper}>
+                <select
+                  style={selectStyle}
+                  value={selectedState}
+                  onChange={e => handleStateChange(e.target.value)}
+                  required
+                >
+                  <option value="">Select state…</option>
+                  {INDIA_STATES.map(s => (
+                    <option key={s.name} value={s.name}>{s.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} style={chevronStyle} />
+              </div>
             </div>
-          )}
+
+            {/* District */}
+            <div>
+              <label style={fieldLabel}>District</label>
+              <div style={selectWrapper}>
+                <select
+                  style={selectedState ? selectStyle : selectDisabled}
+                  value={selectedDistrict}
+                  onChange={e => setSelectedDistrict(e.target.value)}
+                  disabled={!selectedState}
+                  required
+                >
+                  <option value="">
+                    {selectedState ? "Select district…" : "Select a state first"}
+                  </option>
+                  {districts.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} style={chevronStyle} />
+              </div>
+            </div>
+
+            {/* Landmark / address */}
+            <div>
+              <label style={fieldLabel}>Landmark or Address <span style={{ textTransform: "none", fontWeight: 400, color: "#525252" }}>(optional)</span></label>
+              <div style={{ position: "relative" }}>
+                <input
+                  style={{ ...inputStyle, paddingRight: 90 }}
+                  placeholder="Nearest landmark, street, village…"
+                  value={landmark}
+                  onChange={e => setLandmark(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={detectLocation}
+                  style={{
+                    position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                    fontSize: 12, fontWeight: 500, color: "var(--text)",
+                    background: "var(--surface)", border: "1px solid var(--border)",
+                    borderRadius: 4, padding: "4px 10px", cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 4,
+                  }}
+                >
+                  <MapPin size={12} />
+                  {locating ? "…" : "GPS"}
+                </button>
+              </div>
+              {coords && (
+                <div style={{ marginTop: 5, fontSize: 11, color: "#525252", fontFamily: "monospace" }}>
+                  GPS captured: {coords.lat}° N, {coords.lng}° E
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Need Type */}
@@ -300,13 +408,13 @@ export default function ReportPage() {
         {/* Submit */}
         <button
           type="submit"
-          disabled={!needType || !severity}
+          disabled={!canSubmit}
           style={{
             width: "100%", height: 52,
-            background: (!needType || !severity) ? "var(--surface)" : "var(--text)",
-            color: (!needType || !severity) ? "#525252" : "var(--bg)",
+            background: !canSubmit ? "var(--surface)" : "var(--text)",
+            color: !canSubmit ? "#525252" : "var(--bg)",
             fontSize: 14, fontWeight: 600, borderRadius: 6, border: "none",
-            cursor: (!needType || !severity) ? "not-allowed" : "pointer",
+            cursor: !canSubmit ? "not-allowed" : "pointer",
           }}
         >
           Submit Request
