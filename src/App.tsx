@@ -2,10 +2,19 @@ import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import ReportPage from "@/pages/ReportPage";
 import VolunteerPage from "@/pages/VolunteerPage";
+import VolunteerLoginPage from "@/pages/VolunteerLoginPage";
+import VolunteerRegisterPage from "@/pages/VolunteerRegisterPage";
 import CoordinatorPage from "@/pages/CoordinatorPage";
 import LandingPage from "@/pages/LandingPage";
+import { getVolunteerSession } from "@/lib/volunteerAuth";
 
 type OfflineStatus = "offline" | "restored" | null;
+
+function RequireVolunteerAuth({ children }: { children: React.ReactNode }) {
+  const session = getVolunteerSession();
+  if (!session) return <Navigate to="/volunteer/login" replace />;
+  return <>{children}</>;
+}
 
 export default function App() {
   const [offlineStatus, setOfflineStatus] = useState<OfflineStatus>(null);
@@ -68,7 +77,13 @@ export default function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/report" element={<ReportPage />} />
-          <Route path="/volunteer" element={<VolunteerPage />} />
+          <Route path="/volunteer/login" element={<VolunteerLoginPage />} />
+          <Route path="/volunteer/register" element={<VolunteerRegisterPage />} />
+          <Route path="/volunteer" element={
+            <RequireVolunteerAuth>
+              <VolunteerPage />
+            </RequireVolunteerAuth>
+          } />
           <Route path="/coordinator" element={<CoordinatorPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

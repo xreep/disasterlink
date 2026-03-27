@@ -60,7 +60,7 @@ export default function LandingPage() {
       </div>
 
       <div style={{ fontSize: 12, color: "#525252", marginBottom: 20, textAlign: "center" }}>
-        {disasterName} · 58 active requests · 34 volunteers deployed
+        {disasterName} · Active Incident
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 360 }}>
@@ -72,7 +72,7 @@ export default function LandingPage() {
         </button>
 
         <button
-          onClick={() => navigate("/volunteer")}
+          onClick={() => navigate("/volunteer/login")}
           style={btnBase}
         >
           Volunteer Operations

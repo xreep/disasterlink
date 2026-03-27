@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Navigation, ArrowLeft, Clock, Sun, Moon } from "lucide-react";
+import { Navigation, ArrowLeft, Clock, Sun, Moon, LogOut } from "lucide-react";
 import { useDisaster } from "../DisasterContext";
 import { useTheme } from "../ThemeContext";
 import { supabase, type HelpRequest } from "../lib/supabase";
+import { getVolunteerSession, clearVolunteerSession } from "../lib/volunteerAuth";
 
 type Severity = "Critical" | "Urgent" | "Moderate";
 type Tab = "Assigned" | "Open";
@@ -28,6 +29,7 @@ export default function VolunteerPage() {
   const navigate = useNavigate();
   const { disasterName } = useDisaster();
   const { theme, toggleTheme } = useTheme();
+  const session = getVolunteerSession();
   const [tab, setTab] = useState<Tab>("Assigned");
   const [requests, setRequests] = useState<HelpRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,6 +112,11 @@ export default function VolunteerPage() {
     setRequests((prev) => prev.filter((r) => r.id !== id));
   }
 
+  function handleLogout() {
+    clearVolunteerSession();
+    navigate("/volunteer/login");
+  }
+
   const assigned = requests.filter((r) => r.status === "Assigned" || r.status === "In Progress");
   const open = requests.filter((r) => r.status === "Pending");
   const displayed = tab === "Assigned" ? assigned : open;
@@ -121,6 +128,15 @@ export default function VolunteerPage() {
       style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: "pointer", color: "var(--text-muted)", flexShrink: 0 }}
     >
       {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
+    </button>
+  );
+
+  const logoutBtn = (
+    <button
+      onClick={handleLogout}
+      style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4, background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "4px 10px", cursor: "pointer" }}
+    >
+      <LogOut size={12} /> Logout
     </button>
   );
 
@@ -147,21 +163,25 @@ export default function VolunteerPage() {
               {themeBtn}
             </div>
           </div>
-          <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>Volunteer</span>
-            <button
-              onClick={() => setStatusOn(s => !s)}
-              style={{
-                fontSize: 12, fontWeight: 500, padding: "4px 12px", borderRadius: 20,
-                border: statusOn ? "none" : "1px solid var(--border)",
-                background: statusOn ? "var(--text)" : "transparent",
-                color: statusOn ? "var(--bg)" : "var(--text-muted)",
-                cursor: "pointer",
-              }}
-            >
-              {statusOn ? "On Duty" : "Off Duty"}
-            </button>
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{assigned.length} assigned</span>
+          <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>
+                {session?.name ?? "Volunteer"}
+              </span>
+              <button
+                onClick={() => setStatusOn(s => !s)}
+                style={{
+                  fontSize: 12, fontWeight: 500, padding: "4px 12px", borderRadius: 20,
+                  border: statusOn ? "none" : "1px solid var(--border)",
+                  background: statusOn ? "var(--text)" : "transparent",
+                  color: statusOn ? "var(--bg)" : "var(--text-muted)",
+                  cursor: "pointer",
+                }}
+              >
+                {statusOn ? "On Duty" : "Off Duty"}
+              </button>
+            </div>
+            {logoutBtn}
           </div>
         </div>
       ) : (
@@ -180,8 +200,10 @@ export default function VolunteerPage() {
           <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px" }}>
             DisasterLink
           </span>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>Volunteer</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>
+              {session?.name ?? "Volunteer"}
+            </span>
             <button
               onClick={() => setStatusOn(s => !s)}
               style={{
@@ -200,6 +222,7 @@ export default function VolunteerPage() {
             <button onClick={() => navigate("/")} style={{ fontSize: 13, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer" }}>
               <ArrowLeft size={14} /> Home
             </button>
+            {logoutBtn}
             {themeBtn}
           </div>
         </div>

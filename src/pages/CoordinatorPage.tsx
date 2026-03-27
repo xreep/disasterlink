@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
-import { Waves, Activity, Wind, Mountain, Sun, Factory, Flame, Thermometer, Moon } from "lucide-react";
+import { Waves, Activity, Wind, Mountain, Sun, Factory, Flame, Thermometer, Moon, Lock, Shield, LogOut, Plus, Minus } from "lucide-react";
 import { useDisaster, DISASTER_TYPES, DISASTER_CONFIG, type DisasterType } from "../DisasterContext";
 import { useTheme } from "../ThemeContext";
 import { supabase, type HelpRequest, type Volunteer, type Resource } from "../lib/supabase";
+import type { User } from "@supabase/supabase-js";
 
 // ─── Icon map ────────────────────────────────────────────────────────────────
 
@@ -124,6 +125,89 @@ function Badge({ label, color }: { label: string; color: string }) {
   );
 }
 
+// ─── Coordinator Login Modal ───────────────────────────────────────────────────
+
+function CoordinatorLoginModal({
+  onClose,
+  onLogin,
+}: {
+  onClose: () => void;
+  onLogin: (user: User) => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim() || !password) { setError("Please fill in all fields."); return; }
+    setLoading(true);
+    setError(null);
+    const { data, error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (authError || !data.user) {
+      setError("Invalid email or password.");
+      setLoading(false);
+      return;
+    }
+    onLogin(data.user);
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", height: 40, background: "var(--bg)",
+    border: "1px solid var(--border)", borderRadius: 5,
+    padding: "0 12px", fontSize: 13, color: "var(--text)",
+    outline: "none", boxSizing: "border-box",
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 1000,
+      background: "rgba(0,0,0,0.65)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 24,
+    }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8,
+        padding: 28, width: "100%", maxWidth: 360,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Shield size={16} color="#2563eb" />
+          <span style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: "var(--text)" }}>
+            Coordinator Login
+          </span>
+        </div>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 20 }}>
+          Sign in with your EOC coordinator credentials to enable management actions.
+        </p>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>Email</label>
+            <input type="email" placeholder="coordinator@example.com" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} autoFocus />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", display: "block", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em" }}>Password</label>
+            <input type="password" placeholder="Enter password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
+          </div>
+          {error && (
+            <div style={{ fontSize: 12, color: "#dc2626", background: "#dc262610", border: "1px solid #dc262630", borderRadius: 4, padding: "8px 10px" }}>{error}</div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button type="button" onClick={onClose} style={{ flex: 1, height: 38, background: "none", border: "1px solid var(--border)", borderRadius: 5, fontSize: 13, color: "var(--text-muted)", cursor: "pointer" }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={loading} style={{ flex: 1, height: 38, background: "#2563eb", border: "none", borderRadius: 5, fontSize: 13, fontWeight: 600, color: "#fff", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+              {loading ? "Signing in…" : "Login"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function CoordinatorPage() {
@@ -140,6 +224,45 @@ export default function CoordinatorPage() {
   const [requests, setRequests] = useState<HelpRequest[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
+
+  // ── Coordinator auth state ────────────────────────────────────────────────
+  const [coordinator, setCoordinator] = useState<User | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setCoordinator(data.session?.user ?? null);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCoordinator(session?.user ?? null);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  async function handleCoordinatorLogout() {
+    await supabase.auth.signOut();
+    setCoordinator(null);
+  }
+
+  // ── Action handlers (coordinator only) ──────────────────────────────────
+  async function handleResolveRequest(id: string) {
+    await supabase.from("help_requests").update({ status: "Resolved" }).eq("id", id);
+    setRequests((prev) => prev.map((r) => r.id === id ? { ...r, status: "Resolved" } : r));
+  }
+
+  async function handleReleaseVolunteer(id: string) {
+    await supabase.from("volunteers").update({ status: "Available", task_id: null }).eq("id", id);
+    setVolunteers((prev) => prev.map((v) => v.id === id ? { ...v, status: "Available", task_id: null } : v));
+  }
+
+  async function handleUpdateResource(id: number, delta: number) {
+    const resource = resources.find((r) => r.id === id);
+    if (!resource) return;
+    const newDeployed = Math.max(0, Math.min(resource.total, resource.deployed + delta));
+    const newAvailable = resource.total - newDeployed;
+    await supabase.from("resources").update({ deployed: newDeployed, available: newAvailable }).eq("id", id);
+    setResources((prev) => prev.map((r) => r.id === id ? { ...r, deployed: newDeployed, available: newAvailable } : r));
+  }
 
   // ── Resize handler ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -256,24 +379,33 @@ export default function CoordinatorPage() {
     }),
   [requests, reqFilter]);
 
-  // ── Disaster type selector (reused in sidebar + mobile overview) ──────────
+  // ── Disaster type selector ────────────────────────────────────────────────
 
   const disasterSelector = (
     <div style={{ marginBottom: 16 }}>
-      <div style={sectionLabel}>Active Disaster Type</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+        <span style={{ ...sectionLabel, marginBottom: 0 }}>Active Disaster Type</span>
+        {!coordinator && <Lock size={10} color="var(--text-muted)" />}
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         {DISASTER_TYPES.map((type: DisasterType) => {
           const Icon = DISASTER_ICONS[type];
           const meta = DISASTER_CONFIG[type];
           const isActive = disasterType === type;
           return (
-            <button key={type} onClick={() => setDisasterType(type)} style={{
-              display: "flex", alignItems: "center", gap: 9,
-              padding: "7px 9px", borderRadius: 5, cursor: "pointer",
-              border: `1px solid ${isActive ? meta.color : "transparent"}`,
-              background: isActive ? `${meta.color}22` : "transparent",
-              textAlign: "left", width: "100%",
-            }}>
+            <button
+              key={type}
+              onClick={() => coordinator ? setDisasterType(type) : setShowLoginModal(true)}
+              style={{
+                display: "flex", alignItems: "center", gap: 9,
+                padding: "7px 9px", borderRadius: 5,
+                cursor: coordinator ? "pointer" : "pointer",
+                border: `1px solid ${isActive ? meta.color : "transparent"}`,
+                background: isActive ? `${meta.color}22` : "transparent",
+                textAlign: "left", width: "100%",
+                opacity: coordinator ? 1 : 0.6,
+              }}
+            >
               <Icon size={13} color={isActive ? meta.color : "#525252"} />
               <div>
                 <div style={{ fontSize: 12, fontWeight: isActive ? 600 : 400, color: isActive ? meta.color : "var(--text-muted)", lineHeight: 1.2 }}>{type}</div>
@@ -283,6 +415,11 @@ export default function CoordinatorPage() {
           );
         })}
       </div>
+      {!coordinator && (
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 8, display: "flex", alignItems: "center", gap: 4 }}>
+          <Lock size={9} /> Coordinator login required to change
+        </div>
+      )}
     </div>
   );
 
@@ -414,7 +551,6 @@ export default function CoordinatorPage() {
               </Popup>
             </CircleMarker>
           ))}
-          {/* Volunteer pins (blue) - shown when volunteer has a request with coordinates */}
           {activeVolunteers.map(v => {
             if (!v.task_id) return null;
             const req = requests.find(r => r.id === v.task_id);
@@ -442,9 +578,15 @@ export default function CoordinatorPage() {
     </div>
   );
 
+  const reqCols = coordinator
+    ? (isMobile ? "1fr 1fr 1fr" : "90px 1fr 120px 60px 100px 80px 80px")
+    : (isMobile ? "1fr 1fr 1fr" : "90px 1fr 120px 60px 100px 80px");
+  const reqHeaders = coordinator
+    ? (isMobile ? ["ID", "Need / Location", "Status"] : ["ID", "Location", "Need Type", "People", "Severity", "Status", "Action"])
+    : (isMobile ? ["ID", "Need / Location", "Status"] : ["ID", "Location", "Need Type", "People", "Severity", "Status"]);
+
   const requestsContent = (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {/* Filter row */}
       <div style={{ height: 44, borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 16px", gap: 8, flexShrink: 0 }}>
         {(["All", "Unassigned", "Assigned", "Resolved"] as const).map(f => (
           <button key={f} onClick={() => setReqFilter(f)} style={{
@@ -459,9 +601,8 @@ export default function CoordinatorPage() {
         </span>
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
-        {/* Table header */}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr 1fr" : "90px 1fr 120px 60px 100px 80px", gap: 8, padding: "10px 16px", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 1 }}>
-          {(isMobile ? ["ID", "Need / Location", "Status"] : ["ID", "Location", "Need Type", "People", "Severity", "Status"]).map(h => (
+        <div style={{ display: "grid", gridTemplateColumns: reqCols, gap: 8, padding: "10px 16px", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 1 }}>
+          {reqHeaders.map(h => (
             <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</span>
           ))}
         </div>
@@ -470,15 +611,13 @@ export default function CoordinatorPage() {
             No requests found.
           </div>
         ) : filteredReqList.map(r => (
-          <div key={r.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr 1fr" : "90px 1fr 120px 60px 100px 80px", gap: 8, padding: "12px 16px", borderBottom: "1px solid var(--border)", alignItems: "center" }}>
+          <div key={r.id} style={{ display: "grid", gridTemplateColumns: reqCols, gap: 8, padding: "12px 16px", borderBottom: "1px solid var(--border)", alignItems: "center" }}>
             <span style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text)", fontWeight: 600 }}>{r.id}</span>
             {isMobile ? (
-              <>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{r.need_type}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.location_district}, {r.location_state}</div>
-                </div>
-              </>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{r.need_type}</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.location_district}, {r.location_state}</div>
+              </div>
             ) : (
               <>
                 <div>
@@ -491,11 +630,30 @@ export default function CoordinatorPage() {
               </>
             )}
             <Badge label={displayStatus(r.status)} color={STATUS_COLOR[r.status] || "#525252"} />
+            {coordinator && !isMobile && (
+              r.status !== "Resolved" ? (
+                <button
+                  onClick={() => handleResolveRequest(r.id)}
+                  style={{ fontSize: 11, fontWeight: 600, padding: "4px 8px", borderRadius: 4, background: "#16a34a18", border: "1px solid #16a34a", color: "#16a34a", cursor: "pointer" }}
+                >
+                  Resolve
+                </button>
+              ) : (
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>—</span>
+              )
+            )}
           </div>
         ))}
       </div>
     </div>
   );
+
+  const volCols = coordinator
+    ? (isMobile ? "1fr 1fr" : "1fr 140px 80px 100px 100px 80px")
+    : (isMobile ? "1fr 1fr" : "1fr 140px 80px 100px 100px");
+  const volHeaders = coordinator
+    ? (isMobile ? ["Volunteer", "Status"] : ["Volunteer", "Location", "Skill", "Status", "Assigned Task", "Action"])
+    : (isMobile ? ["Volunteer", "Status"] : ["Volunteer", "Location", "Skill", "Status", "Assigned Task"]);
 
   const volunteersContent = (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -506,8 +664,8 @@ export default function CoordinatorPage() {
         <span style={{ fontSize: 12, color: "#d97706" }}>{volunteers.filter(v => v.status === "Available").length} available</span>
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 140px 80px 100px 100px", gap: 8, padding: "10px 16px", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 1 }}>
-          {(isMobile ? ["Volunteer", "Status"] : ["Volunteer", "Location", "Skill", "Status", "Assigned Task"]).map(h => (
+        <div style={{ display: "grid", gridTemplateColumns: volCols, gap: 8, padding: "10px 16px", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 1 }}>
+          {volHeaders.map(h => (
             <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</span>
           ))}
         </div>
@@ -516,7 +674,7 @@ export default function CoordinatorPage() {
             No volunteers registered yet.
           </div>
         ) : volunteers.map(v => (
-          <div key={v.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 140px 80px 100px 100px", gap: 8, padding: "12px 16px", borderBottom: "1px solid var(--border)", alignItems: "center" }}>
+          <div key={v.id} style={{ display: "grid", gridTemplateColumns: volCols, gap: 8, padding: "12px 16px", borderBottom: "1px solid var(--border)", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>{v.name}</div>
               <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{v.id}</div>
@@ -531,6 +689,18 @@ export default function CoordinatorPage() {
             {!isMobile && (
               <span style={{ fontFamily: "monospace", fontSize: 12, color: v.task_id ? "#2563eb" : "var(--text-muted)" }}>{v.task_id ?? "—"}</span>
             )}
+            {coordinator && !isMobile && (
+              v.task_id ? (
+                <button
+                  onClick={() => handleReleaseVolunteer(v.id)}
+                  style={{ fontSize: 11, fontWeight: 600, padding: "4px 8px", borderRadius: 4, background: "#d9770618", border: "1px solid #d97706", color: "#d97706", cursor: "pointer" }}
+                >
+                  Release
+                </button>
+              ) : (
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>—</span>
+              )
+            )}
           </div>
         ))}
       </div>
@@ -539,6 +709,11 @@ export default function CoordinatorPage() {
 
   const resourcesContent = (
     <div style={{ padding: 20, overflowY: "auto", height: "100%" }}>
+      {!coordinator && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 5, marginBottom: 14, padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--surface)" }}>
+          <Lock size={11} /> Login as coordinator to update resource deployments
+        </div>
+      )}
       {resources.length === 0 ? (
         <div style={{ textAlign: "center", color: "#525252", fontSize: 13, padding: "48px 0" }}>No resources loaded.</div>
       ) : (
@@ -568,6 +743,25 @@ export default function CoordinatorPage() {
                     <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-muted)", fontFamily: "monospace", lineHeight: 1 }}>{r.total}</div>
                     <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Total</div>
                   </div>
+                  {coordinator && (
+                    <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                      <button
+                        onClick={() => handleUpdateResource(r.id, -1)}
+                        disabled={r.deployed <= 0}
+                        style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: r.deployed <= 0 ? "not-allowed" : "pointer", color: "var(--text-muted)", opacity: r.deployed <= 0 ? 0.4 : 1 }}
+                      >
+                        <Minus size={12} />
+                      </button>
+                      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>Deploy</span>
+                      <button
+                        onClick={() => handleUpdateResource(r.id, 1)}
+                        disabled={r.available <= 0}
+                        style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: r.available <= 0 ? "not-allowed" : "pointer", color: "var(--text-muted)", opacity: r.available <= 0 ? 0.4 : 1 }}
+                      >
+                        <Plus size={12} />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div style={{ height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
                   <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2 }} />
@@ -584,7 +778,6 @@ export default function CoordinatorPage() {
   const analyticsContent = (
     <div style={{ padding: 20, overflowY: "auto", height: "100%" }}>
       <div style={{ display: isMobile ? "block" : "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-        {/* Requests by need type */}
         <div style={{ marginBottom: isMobile ? 28 : 0 }}>
           <div style={sectionLabel}>Requests by Need Type</div>
           {analyticsNeed.length === 0 ? (
@@ -609,7 +802,6 @@ export default function CoordinatorPage() {
           )}
         </div>
 
-        {/* Requests by state */}
         <div style={{ marginBottom: isMobile ? 28 : 0 }}>
           <div style={sectionLabel}>Requests by State</div>
           {analyticsState.length === 0 ? (
@@ -634,7 +826,6 @@ export default function CoordinatorPage() {
           )}
         </div>
 
-        {/* Resolution rate trend */}
         <div style={{ marginBottom: isMobile ? 28 : 0 }}>
           <div style={sectionLabel}>7-Day Resolution Rate</div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 80 }}>
@@ -648,7 +839,6 @@ export default function CoordinatorPage() {
           </div>
         </div>
 
-        {/* Summary stats */}
         <div>
           <div style={sectionLabel}>Response Summary</div>
           {[
@@ -695,7 +885,7 @@ export default function CoordinatorPage() {
     <div style={{ height: "100vh", background: "var(--bg)", color: "var(--text)", fontFamily: "'Inter', sans-serif", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* ── Top Bar ── */}
       <div style={{ height: 48, borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 16px", gap: 0, flexShrink: 0 }}>
-        <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px", marginRight: 20 }}>
+        <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px", marginRight: 16 }}>
           DisasterLink
         </span>
         <span style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 500, color: "var(--text-muted)", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
@@ -703,10 +893,32 @@ export default function CoordinatorPage() {
           {disasterName} — Active Incident
         </span>
         {!isMobile && (
-          <span style={{ fontSize: 12, color: "var(--text-muted)", marginRight: 16, fontFamily: "monospace" }}>
+          <span style={{ fontSize: 12, color: "var(--text-muted)", marginRight: 12, fontFamily: "monospace" }}>
             Sync: {lastSync}
           </span>
         )}
+
+        {coordinator ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 3, background: "#2563eb18", border: "1px solid #2563eb", color: "#2563eb", display: "flex", alignItems: "center", gap: 4 }}>
+              <Shield size={10} /> {isMobile ? "Coord." : "Coordinator Mode"}
+            </span>
+            <button
+              onClick={handleCoordinatorLogout}
+              style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4, background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "4px 10px", cursor: "pointer" }}
+            >
+              <LogOut size={12} /> {isMobile ? "" : "Logout"}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowLoginModal(true)}
+            style={{ fontSize: 12, fontWeight: 500, color: "var(--text-muted)", background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "5px 12px", cursor: "pointer", marginRight: 8, display: "flex", alignItems: "center", gap: 4 }}
+          >
+            <Shield size={12} /> {isMobile ? "Login" : "Coordinator Login"}
+          </button>
+        )}
+
         <button onClick={() => navigate("/")} style={{ fontSize: 12, fontWeight: 500, color: "var(--text-muted)", background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "5px 12px", cursor: "pointer", marginRight: 8 }}>
           Home
         </button>
@@ -717,7 +929,6 @@ export default function CoordinatorPage() {
 
       {/* ── Content area ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {/* Left sidebar — desktop only */}
         {!isMobile && (
           <div style={{ width: 240, borderRight: "1px solid var(--border)", padding: "16px", overflowY: "auto", flexShrink: 0, background: "var(--bg)" }}>
             {disasterSelector}
@@ -725,7 +936,6 @@ export default function CoordinatorPage() {
           </div>
         )}
 
-        {/* Main area: tab bar + content */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {tabBar}
           {TABS.map(tab => (
@@ -735,6 +945,14 @@ export default function CoordinatorPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Coordinator Login Modal ── */}
+      {showLoginModal && (
+        <CoordinatorLoginModal
+          onClose={() => setShowLoginModal(false)}
+          onLogin={(user) => { setCoordinator(user); setShowLoginModal(false); }}
+        />
+      )}
     </div>
   );
 }

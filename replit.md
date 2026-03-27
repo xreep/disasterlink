@@ -17,6 +17,11 @@ A React + TypeScript + Vite web application for real-time disaster resource coor
 - `VITE_SUPABASE_URL` — Supabase project URL
 - `VITE_SUPABASE_ANON_KEY` — Supabase anon/public key
 
+## Authentication
+- **Victims**: No login — direct access to the report form
+- **Volunteers**: Phone + password login. Credentials stored in `volunteers` table (SHA-256 hashed password). Session persisted in localStorage.
+- **EOC Coordinators**: Supabase Auth (email + password). Create coordinator accounts via Supabase Dashboard → Authentication → Users. Public can VIEW the EOC dashboard; only logged-in coordinators can take actions (change disaster type, resolve requests, release volunteers, update resources).
+
 ## Supabase Schema (run in Supabase SQL Editor)
 ```sql
 -- Active disaster configuration
@@ -46,16 +51,22 @@ create table if not exists help_requests (
   created_at timestamptz default now()
 );
 
--- Volunteers
+-- Volunteers (includes phone + password_hash for auth)
 create table if not exists volunteers (
   id text primary key,
   name text not null,
+  phone text unique,
+  password_hash text,
   district text not null,
   state text not null,
   skill text not null,
   status text not null default 'Available',
   task_id text references help_requests(id)
 );
+
+-- Migration: add phone and password_hash to existing volunteers table
+-- alter table volunteers add column if not exists phone text unique;
+-- alter table volunteers add column if not exists password_hash text;
 
 -- Physical resources
 create table if not exists resources (
