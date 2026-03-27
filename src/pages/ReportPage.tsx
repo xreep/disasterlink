@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { MapPin, Plus, Minus, ArrowLeft, ChevronDown, Sun, Moon } from "lucide-react";
 import { INDIA_STATES, getDistricts } from "../lib/india-geo";
 import { useTheme } from "../ThemeContext";
+import { supabase } from "../lib/supabase";
 
 const NEED_TYPES = ["Food & Water", "Medical Help", "Shelter", "Rescue", "Evacuation", "Other"];
 const SEVERITY_OPTIONS = [
@@ -29,6 +30,8 @@ export default function ReportPage() {
   const [severity, setSeverity] = useState<string | null>(null);
   const [people, setPeople] = useState(1);
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [ticketId] = useState(generateTicketId);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
@@ -59,10 +62,32 @@ export default function ReportPage() {
     );
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!needType || !severity || !selectedState || !selectedDistrict) return;
-    setSubmitted(true);
+    setSubmitting(true);
+    setSubmitError(null);
+    const { error } = await supabase.from("help_requests").insert({
+      id: ticketId,
+      victim_name: name || null,
+      victim_phone: phone || null,
+      need_type: needType,
+      description: landmark || null,
+      location_state: selectedState,
+      location_district: selectedDistrict,
+      latitude: coords?.lat ?? null,
+      longitude: coords?.lng ?? null,
+      severity,
+      people,
+      status: "Pending",
+      source: "web",
+    });
+    setSubmitting(false);
+    if (error) {
+      setSubmitError("Could not submit request. Please try again.");
+    } else {
+      setSubmitted(true);
+    }
   }
 
   const locationString = [selectedDistrict, selectedState].filter(Boolean).join(", ")
@@ -418,18 +443,23 @@ export default function ReportPage() {
         </div>
 
         {/* Submit */}
+        {submitError && (
+          <div style={{ fontSize: 13, color: "#dc2626", marginBottom: 10, padding: "8px 12px", border: "1px solid #dc262633", borderRadius: 6, background: "#dc262608" }}>
+            {submitError}
+          </div>
+        )}
         <button
           type="submit"
-          disabled={!canSubmit}
+          disabled={!canSubmit || submitting}
           style={{
             width: "100%", height: 52,
-            background: !canSubmit ? "var(--surface)" : "var(--text)",
-            color: !canSubmit ? "#525252" : "var(--bg)",
+            background: !canSubmit || submitting ? "var(--surface)" : "var(--text)",
+            color: !canSubmit || submitting ? "#525252" : "var(--bg)",
             fontSize: 14, fontWeight: 600, borderRadius: 6, border: "none",
-            cursor: !canSubmit ? "not-allowed" : "pointer",
+            cursor: !canSubmit || submitting ? "not-allowed" : "pointer",
           }}
         >
-          Submit Request
+          {submitting ? "Submitting…" : "Submit Request"}
         </button>
       </form>
     </div>

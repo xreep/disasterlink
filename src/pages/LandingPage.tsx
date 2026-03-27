@@ -1,9 +1,12 @@
 import { useNavigate } from "react-router-dom";
 import { useDisaster } from "../DisasterContext";
+import { useTheme } from "../ThemeContext";
+import { Sun, Moon } from "lucide-react";
 
 export default function LandingPage() {
   const navigate = useNavigate();
   const { disasterName } = useDisaster();
+  const { theme, toggleTheme } = useTheme();
 
   const btnBase: React.CSSProperties = {
     width: "100%",
@@ -30,7 +33,15 @@ export default function LandingPage() {
       alignItems: "center",
       justifyContent: "center",
       padding: "40px 24px",
+      position: "relative",
     }}>
+      <button
+        onClick={toggleTheme}
+        aria-label="Toggle theme"
+        style={{ position: "absolute", top: 16, right: 16, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: "pointer", color: "var(--text-muted)" }}
+      >
+        {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+      </button>
       <div style={{ marginBottom: 28, textAlign: "center" }}>
         <div style={{
           fontFamily: "monospace",

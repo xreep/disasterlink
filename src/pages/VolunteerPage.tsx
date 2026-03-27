@@ -1,49 +1,39 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Navigation, ArrowLeft, Clock } from "lucide-react";
+import { Navigation, ArrowLeft, Clock, Sun, Moon } from "lucide-react";
 import { useDisaster } from "../DisasterContext";
+import { useTheme } from "../ThemeContext";
+import { supabase, type HelpRequest } from "../lib/supabase";
 
 type Severity = "Critical" | "Urgent" | "Moderate";
 type Tab = "Assigned" | "Open";
 
-interface Task {
-  id: string;
-  needType: string;
-  location: string;
-  severity: Severity;
-  people: number;
-  timeAgo: string;
-  assigned: boolean;
-  completed: boolean;
-}
-
-const INITIAL_TASKS: Task[] = [
-  { id: "DL-48291", needType: "Rescue", location: "Mahendrughat, Patna", severity: "Critical", people: 8, timeAgo: "2h ago", assigned: true, completed: false },
-  { id: "DL-48304", needType: "Medical", location: "Lal Darwaja, Muzaffarpur", severity: "Critical", people: 3, timeAgo: "45m ago", assigned: false, completed: false },
-  { id: "DL-48317", needType: "Food", location: "Laheriasarai, Darbhanga", severity: "Urgent", people: 22, timeAgo: "1h ago", assigned: false, completed: false },
-  { id: "DL-48329", needType: "Water", location: "Riga, Sitamarhi", severity: "Urgent", people: 15, timeAgo: "3h ago", assigned: true, completed: false },
-  { id: "DL-48341", needType: "Shelter", location: "Chhapra, Saran", severity: "Moderate", people: 40, timeAgo: "4h ago", assigned: false, completed: false },
-  { id: "DL-48355", needType: "Food", location: "Hajipur, Vaishali", severity: "Urgent", people: 11, timeAgo: "5h ago", assigned: false, completed: false },
-  { id: "DL-48368", needType: "Medical", location: "Katra, Muzaffarpur", severity: "Critical", people: 2, timeAgo: "6h ago", assigned: true, completed: false },
-  { id: "DL-48382", needType: "Rescue", location: "Bagaha, Pashchim Champaran", severity: "Moderate", people: 6, timeAgo: "7h ago", assigned: false, completed: false },
-];
-
-const SEVERITY_COLOR: Record<Severity, string> = {
+const SEVERITY_COLOR: Record<string, string> = {
   Critical: "#dc2626",
   Urgent: "#d97706",
   Moderate: "#16a34a",
 };
 
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 export default function VolunteerPage() {
   const navigate = useNavigate();
   const { disasterName } = useDisaster();
+  const { theme, toggleTheme } = useTheme();
   const [tab, setTab] = useState<Tab>("Assigned");
-  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
+  const [requests, setRequests] = useState<HelpRequest[]>([]);
+  const [loading, setLoading] = useState(true);
   const [statusOn, setStatusOn] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isNarrow, setIsNarrow] = useState(window.innerWidth < 480);
-
-  const completedCount = tasks.filter(t => t.completed).length;
 
   useEffect(() => {
     function onResize() {
@@ -54,21 +44,85 @@ export default function VolunteerPage() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  function handleAccept(id: string) {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, assigned: true } : t));
+  useEffect(() => {
+    setLoading(true);
+    supabase
+      .from("help_requests")
+      .select("*")
+      .in("status", ["Pending", "Assigned", "In Progress"])
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        if (data) setRequests(data as HelpRequest[]);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+
+    const channel = supabase
+      .channel("volunteer-requests")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "help_requests" },
+        (payload) => {
+          const row = payload.new as HelpRequest;
+          if (["Pending", "Assigned", "In Progress"].includes(row.status)) {
+            setRequests((prev) => [row, ...prev]);
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "help_requests" },
+        (payload) => {
+          const row = payload.new as HelpRequest;
+          setRequests((prev) => {
+            if (row.status === "Resolved") {
+              return prev.filter((r) => r.id !== row.id);
+            }
+            const exists = prev.find((r) => r.id === row.id);
+            if (exists) return prev.map((r) => (r.id === row.id ? row : r));
+            if (["Pending", "Assigned", "In Progress"].includes(row.status)) {
+              return [row, ...prev];
+            }
+            return prev;
+          });
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  async function handleAccept(id: string) {
+    await supabase
+      .from("help_requests")
+      .update({ status: "Assigned" })
+      .eq("id", id);
+    setRequests((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, status: "Assigned" } : r))
+    );
   }
 
-  function handleComplete(id: string) {
-    setTasks(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, completed: true } : t);
-      return [
-        ...updated.filter(t => !t.completed),
-        ...updated.filter(t => t.completed),
-      ];
-    });
+  async function handleComplete(id: string) {
+    await supabase
+      .from("help_requests")
+      .update({ status: "Resolved" })
+      .eq("id", id);
+    setRequests((prev) => prev.filter((r) => r.id !== id));
   }
 
-  const displayed = tasks.filter(t => tab === "Assigned" ? t.assigned : !t.assigned);
+  const assigned = requests.filter((r) => r.status === "Assigned" || r.status === "In Progress");
+  const open = requests.filter((r) => r.status === "Pending");
+  const displayed = tab === "Assigned" ? assigned : open;
+
+  const themeBtn = (
+    <button
+      onClick={toggleTheme}
+      aria-label="Toggle theme"
+      style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: "pointer", color: "var(--text-muted)", flexShrink: 0 }}
+    >
+      {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
+    </button>
+  );
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: "'Inter', sans-serif", color: "var(--text)" }}>
@@ -86,12 +140,15 @@ export default function VolunteerPage() {
             <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px" }}>
               DisasterLink
             </span>
-            <button onClick={() => navigate("/")} style={{ fontSize: 13, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer" }}>
-              <ArrowLeft size={14} /> Home
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button onClick={() => navigate("/")} style={{ fontSize: 13, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer" }}>
+                <ArrowLeft size={14} /> Home
+              </button>
+              {themeBtn}
+            </div>
           </div>
           <div style={{ height: 40, display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>Arjun M.</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>Volunteer</span>
             <button
               onClick={() => setStatusOn(s => !s)}
               style={{
@@ -104,7 +161,7 @@ export default function VolunteerPage() {
             >
               {statusOn ? "On Duty" : "Off Duty"}
             </button>
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{completedCount + 7} done</span>
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{assigned.length} assigned</span>
           </div>
         </div>
       ) : (
@@ -124,7 +181,7 @@ export default function VolunteerPage() {
             DisasterLink
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>Arjun M.</span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>Volunteer</span>
             <button
               onClick={() => setStatusOn(s => !s)}
               style={{
@@ -137,11 +194,14 @@ export default function VolunteerPage() {
             >
               {statusOn ? "On Duty" : "Off Duty"}
             </button>
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{completedCount + 7} done</span>
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{assigned.length} assigned</span>
           </div>
-          <button onClick={() => navigate("/")} style={{ fontSize: 13, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer" }}>
-            <ArrowLeft size={14} /> Home
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => navigate("/")} style={{ fontSize: 13, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer" }}>
+              <ArrowLeft size={14} /> Home
+            </button>
+            {themeBtn}
+          </div>
         </div>
       )}
 
@@ -178,78 +238,75 @@ export default function VolunteerPage() {
                 cursor: "pointer",
               }}
             >
-              {t}
+              {t} {t === "Open" ? `(${open.length})` : `(${assigned.length})`}
             </button>
           ))}
         </div>
 
         {/* Task list */}
-        {displayed.length === 0 ? (
+        {loading ? (
           <div style={{ textAlign: "center", color: "#525252", fontSize: 14, padding: "48px 16px" }}>
-            No tasks in this queue.
+            Loading requests…
+          </div>
+        ) : displayed.length === 0 ? (
+          <div style={{ textAlign: "center", color: "#525252", fontSize: 14, padding: "48px 16px" }}>
+            {tab === "Open" ? "No pending requests right now." : "No assigned tasks."}
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: isMobile ? "0" : "0" }}>
-            {displayed.map(task => (
-              <div
-                key={task.id}
-                style={{
-                  background: "var(--surface)",
-                  border: "1px solid var(--border)",
-                  borderLeft: `3px solid ${task.completed ? "var(--border)" : SEVERITY_COLOR[task.severity]}`,
-                  borderRadius: isMobile ? 0 : 6,
-                  padding: "14px 16px",
-                }}
-              >
-                {/* Top row */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontFamily: "monospace", fontSize: 12, color: "#525252" }}>{task.id}</span>
-                  {!task.completed && (
-                    <span style={{ fontSize: 11, fontWeight: 500, color: SEVERITY_COLOR[task.severity], textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                      {task.severity}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {displayed.map(req => {
+              const sev = req.severity as Severity;
+              return (
+                <div
+                  key={req.id}
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderLeft: `3px solid ${SEVERITY_COLOR[sev] || "#525252"}`,
+                    borderRadius: isMobile ? 0 : 6,
+                    padding: "14px 16px",
+                  }}
+                >
+                  {/* Top row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontFamily: "monospace", fontSize: 12, color: "#525252" }}>{req.id}</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: SEVERITY_COLOR[sev] || "#525252", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      {req.severity}
                     </span>
-                  )}
-                  <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#525252" }}>
-                    <Clock size={12} /> {task.timeAgo}
-                  </span>
-                </div>
-
-                {/* Middle row */}
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{
-                    fontSize: 14, fontWeight: 600,
-                    color: task.completed ? "#525252" : "var(--text)",
-                    textDecoration: task.completed ? "line-through" : "none",
-                    marginBottom: 2,
-                  }}>
-                    {task.needType}
+                    <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#525252" }}>
+                      <Clock size={12} /> {timeAgo(req.created_at)}
+                    </span>
                   </div>
-                  <div style={{ fontSize: 13, color: task.completed ? "#525252" : "var(--text-muted)" }}>
-                    {task.location}
-                  </div>
-                </div>
 
-                {/* Bottom row */}
-                <div style={{ display: "flex", alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 8 : 0 }}>
-                  <span style={{ fontSize: 12, color: "#525252" }}>{task.people} people</span>
-                  <div style={{ display: "flex", gap: 8, flexDirection: isMobile ? "column" : "row" }}>
-                    <button
-                      onClick={() => window.open(`https://www.google.com/maps/search/${encodeURIComponent(task.location)}`, "_blank")}
-                      style={{
-                        fontSize: 12, fontWeight: 500, color: "var(--text-muted)",
-                        background: "none", border: "1px solid var(--border)", borderRadius: 4,
-                        padding: isMobile ? "0 12px" : "6px 12px",
-                        height: isMobile ? 40 : "auto",
-                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
-                      }}
-                    >
-                      <Navigation size={12} /> Directions
-                    </button>
-                    {task.completed ? (
-                      <span style={{ fontSize: 12, color: "#525252", padding: "6px 14px", textAlign: "center" }}>Completed</span>
-                    ) : (
+                  {/* Middle row */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", marginBottom: 2 }}>
+                      {req.need_type}
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                      {req.location_district}, {req.location_state}
+                      {req.description ? ` — ${req.description}` : ""}
+                    </div>
+                  </div>
+
+                  {/* Bottom row */}
+                  <div style={{ display: "flex", alignItems: isMobile ? "stretch" : "center", justifyContent: "space-between", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 8 : 0 }}>
+                    <span style={{ fontSize: 12, color: "#525252" }}>{req.people} {req.people === 1 ? "person" : "people"}</span>
+                    <div style={{ display: "flex", gap: 8, flexDirection: isMobile ? "column" : "row" }}>
                       <button
-                        onClick={() => task.assigned ? handleComplete(task.id) : handleAccept(task.id)}
+                        onClick={() => window.open(`https://www.google.com/maps/search/${encodeURIComponent(`${req.location_district}, ${req.location_state}`)}`, "_blank")}
+                        style={{
+                          fontSize: 12, fontWeight: 500, color: "var(--text-muted)",
+                          background: "none", border: "1px solid var(--border)", borderRadius: 4,
+                          padding: isMobile ? "0 12px" : "6px 12px",
+                          height: isMobile ? 40 : "auto",
+                          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
+                        }}
+                      >
+                        <Navigation size={12} /> Directions
+                      </button>
+                      <button
+                        onClick={() => req.status === "Pending" ? handleAccept(req.id) : handleComplete(req.id)}
                         style={{
                           fontSize: 12, fontWeight: 600,
                           color: "var(--bg)", background: "var(--text)",
@@ -259,13 +316,13 @@ export default function VolunteerPage() {
                           cursor: "pointer",
                         }}
                       >
-                        {task.assigned ? "Complete" : "Accept"}
+                        {req.status === "Pending" ? "Accept" : "Complete"}
                       </button>
-                    )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

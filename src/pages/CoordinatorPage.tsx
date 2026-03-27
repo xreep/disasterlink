@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import { Waves, Activity, Wind, Mountain, Sun, Factory, Flame, Thermometer, Moon } from "lucide-react";
 import { useDisaster, DISASTER_TYPES, DISASTER_CONFIG, type DisasterType } from "../DisasterContext";
 import { useTheme } from "../ThemeContext";
+import { supabase, type HelpRequest, type Volunteer, type Resource } from "../lib/supabase";
 
 // ─── Icon map ────────────────────────────────────────────────────────────────
 
@@ -14,101 +15,30 @@ const DISASTER_ICONS: Record<DisasterType, React.ComponentType<{ size?: number; 
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
-type Severity = "Critical" | "Urgent" | "Resolved";
-type ReqStatus = "Unassigned" | "Assigned" | "In Progress" | "Resolved";
-type VolStatus = "Active" | "Deployed" | "Available" | "Completed";
 type EOCTab = "Overview" | "Map" | "Requests" | "Volunteers" | "Resources" | "Analytics";
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const REQUESTS: Array<{
-  id: string; lat: number; lng: number; severity: Severity;
-  needType: string; people: number; status: ReqStatus;
-  district: string; state: string; reported: string;
-}> = [
-  { id: "DL-48291", lat: 25.574, lng: 85.158, severity: "Critical", needType: "Rescue",       people: 8,  status: "Unassigned",  district: "Patna",        state: "Bihar",       reported: "2h ago" },
-  { id: "DL-48304", lat: 26.120, lng: 85.391, severity: "Critical", needType: "Medical Help", people: 3,  status: "Unassigned",  district: "Muzaffarpur",  state: "Bihar",       reported: "45m ago" },
-  { id: "DL-48317", lat: 26.152, lng: 85.899, severity: "Critical", needType: "Food & Water", people: 22, status: "Assigned",    district: "Darbhanga",    state: "Bihar",       reported: "1h ago" },
-  { id: "DL-48329", lat: 26.591, lng: 85.486, severity: "Critical", needType: "Food & Water", people: 15, status: "Unassigned",  district: "Sitamarhi",    state: "Bihar",       reported: "3h ago" },
-  { id: "DL-48341", lat: 25.977, lng: 85.161, severity: "Critical", needType: "Rescue",       people: 7,  status: "Unassigned",  district: "Patna",        state: "Bihar",       reported: "30m ago" },
-  { id: "DL-48355", lat: 25.688, lng: 85.212, severity: "Urgent",   needType: "Shelter",      people: 40, status: "Assigned",    district: "Vaishali",     state: "Bihar",       reported: "4h ago" },
-  { id: "DL-48368", lat: 25.752, lng: 85.716, severity: "Urgent",   needType: "Food & Water", people: 11, status: "In Progress", district: "Bhagalpur",    state: "Bihar",       reported: "5h ago" },
-  { id: "DL-48382", lat: 26.784, lng: 84.917, severity: "Urgent",   needType: "Medical Help", people: 6,  status: "In Progress", district: "Purnia",       state: "Bihar",       reported: "6h ago" },
-  { id: "DL-48394", lat: 25.421, lng: 85.001, severity: "Urgent",   needType: "Evacuation",   people: 19, status: "Assigned",    district: "Gaya",         state: "Bihar",       reported: "7h ago" },
-  { id: "DL-48401", lat: 10.080, lng: 76.970, severity: "Resolved", needType: "Food & Water", people: 30, status: "Resolved",    district: "Idukki",       state: "Kerala",      reported: "8h ago" },
-  { id: "DL-48415", lat: 26.185, lng: 91.736, severity: "Resolved", needType: "Shelter",      people: 12, status: "Resolved",    district: "Kamrup",       state: "Assam",       reported: "9h ago" },
-  { id: "DL-48429", lat: 20.462, lng: 85.879, severity: "Resolved", needType: "Medical Help", people: 4,  status: "Resolved",    district: "Cuttack",      state: "Odisha",      reported: "10h ago" },
-  { id: "DL-48443", lat: 19.998, lng: 73.790, severity: "Urgent",   needType: "Evacuation",   people: 25, status: "Assigned",    district: "Nashik",       state: "Maharashtra", reported: "11h ago" },
-  { id: "DL-48456", lat: 21.197, lng: 72.834, severity: "Critical", needType: "Other",        people: 9,  status: "Unassigned",  district: "Surat",        state: "Gujarat",     reported: "12h ago" },
-  { id: "DL-48470", lat: 24.185, lng: 88.277, severity: "Urgent",   needType: "Medical Help", people: 17, status: "In Progress", district: "Murshidabad",  state: "West Bengal", reported: "13h ago" },
-];
+// ─── Colour maps ──────────────────────────────────────────────────────────────
 
 const SEVERITY_COLOR: Record<string, string> = {
-  Critical: "#dc2626", Urgent: "#d97706", Resolved: "#16a34a",
+  Critical: "#dc2626", Urgent: "#d97706", Moderate: "#16a34a",
 };
 const STATUS_COLOR: Record<string, string> = {
-  Unassigned: "#dc2626", Assigned: "#d97706", "In Progress": "#2563eb", Resolved: "#16a34a",
+  Pending: "#dc2626", Unassigned: "#dc2626", Assigned: "#d97706",
+  "In Progress": "#2563eb", Resolved: "#16a34a",
 };
 const NEED_COLOR: Record<string, string> = {
   "Food & Water": "#2563eb", "Medical Help": "#dc2626", "Shelter": "#7c3aed",
   "Rescue": "#ea580c", "Evacuation": "#d97706", "Other": "#525252",
 };
-
-const VOLUNTEERS: Array<{
-  id: string; name: string; district: string; state: string;
-  skill: string; status: VolStatus; task: string | null;
-}> = [
-  { id: "V-001", name: "Arjun Sharma",   district: "Patna",       state: "Bihar",       skill: "Rescue",     status: "Active",    task: "DL-48291" },
-  { id: "V-002", name: "Priya Singh",    district: "Muzaffarpur", state: "Bihar",       skill: "Medical",    status: "Active",    task: "DL-48304" },
-  { id: "V-003", name: "Rahul Kumar",    district: "Darbhanga",   state: "Bihar",       skill: "Logistics",  status: "Deployed",  task: "DL-48368" },
-  { id: "V-004", name: "Anjali Rao",     district: "Vaishali",    state: "Bihar",       skill: "First Aid",  status: "Available", task: null },
-  { id: "V-005", name: "Kavita Patel",   district: "Saran",       state: "Bihar",       skill: "Rescue",     status: "Completed", task: "DL-48329" },
-  { id: "V-006", name: "Vikram Das",     district: "Sitamarhi",   state: "Bihar",       skill: "Shelter",    status: "Deployed",  task: "DL-48355" },
-  { id: "V-007", name: "Meena Kumari",   district: "Chhapra",     state: "Bihar",       skill: "Food Dist.", status: "Active",    task: "DL-48317" },
-  { id: "V-008", name: "Suresh Verma",   district: "Hajipur",     state: "Bihar",       skill: "Rescue",     status: "Available", task: null },
-  { id: "V-009", name: "Deepa Nair",     district: "Ernakulam",   state: "Kerala",      skill: "Medical",    status: "Active",    task: "DL-48401" },
-  { id: "V-010", name: "Rajesh Borah",   district: "Kamrup",      state: "Assam",       skill: "Rescue",     status: "Completed", task: "DL-48415" },
-  { id: "V-011", name: "Sunita Mishra",  district: "Cuttack",     state: "Odisha",      skill: "First Aid",  status: "Available", task: null },
-  { id: "V-012", name: "Amit Desai",     district: "Nashik",      state: "Maharashtra", skill: "Evacuation", status: "Active",    task: "DL-48443" },
-];
 const VOL_STATUS_COLOR: Record<string, string> = {
   Active: "#16a34a", Deployed: "#2563eb", Available: "#d97706", Completed: "#525252",
 };
-
-const RESOURCES: Array<{
-  name: string; category: string; available: number; deployed: number; total: number; location: string;
-}> = [
-  { name: "Food Packets",   category: "Nutrition",  available: 840,  deployed: 360, total: 1200, location: "Patna Dist. HQ" },
-  { name: "Water Pouches",  category: "Nutrition",  available: 1240, deployed: 560, total: 1800, location: "Muzaffarpur Camp" },
-  { name: "Medical Kits",   category: "Medical",    available: 92,   deployed: 58,  total: 150,  location: "Civil Hospital, Patna" },
-  { name: "Rescue Boats",   category: "Rescue",     available: 6,    deployed: 4,   total: 10,   location: "Hajipur River Station" },
-  { name: "Tarpaulins",     category: "Shelter",    available: 310,  deployed: 190, total: 500,  location: "Vaishali Dist. Centre" },
-  { name: "Helicopters",    category: "Rescue",     available: 2,    deployed: 1,   total: 3,    location: "Patna Airport" },
-  { name: "Ambulances",     category: "Medical",    available: 8,    deployed: 5,   total: 13,   location: "SDRF Headquarters" },
-  { name: "Blankets",       category: "Shelter",    available: 620,  deployed: 380, total: 1000, location: "Darbhanga Relief Camp" },
-];
 const RESOURCE_CATEGORY_COLOR: Record<string, string> = {
   Nutrition: "#2563eb", Medical: "#dc2626", Rescue: "#ea580c", Shelter: "#7c3aed",
 };
 
-const ANALYTICS_NEED = [
-  { name: "Food & Water", count: 18 },
-  { name: "Medical Help", count: 14 },
-  { name: "Rescue",       count: 12 },
-  { name: "Shelter",      count: 8  },
-  { name: "Evacuation",   count: 7  },
-  { name: "Other",        count: 3  },
-];
-const ANALYTICS_STATE = [
-  { name: "Bihar",        count: 28 },
-  { name: "Assam",        count: 12 },
-  { name: "Kerala",       count: 8  },
-  { name: "Odisha",       count: 6  },
-  { name: "Maharashtra",  count: 5  },
-  { name: "West Bengal",  count: 4  },
-  { name: "Gujarat",      count: 3  },
-  { name: "Uttarakhand",  count: 2  },
-];
+// ─── Resolution trend (static analytics skeleton) ─────────────────────────────
+
 const RESOLUTION_TREND = [
   { day: "Mon", pct: 71 }, { day: "Tue", pct: 76 },
   { day: "Wed", pct: 68 }, { day: "Thu", pct: 80 },
@@ -116,35 +46,35 @@ const RESOLUTION_TREND = [
   { day: "Sun", pct: 78 },
 ];
 
-const INITIAL_FEED = [
-  "14:23 — Volunteer Arjun accepted task #DL-48291 in Patna",
-  "14:21 — New critical request: Muzaffarpur, 8 people, Medical",
-  "14:19 — Task #DL-48304 marked complete by Priya S.",
-  "14:17 — Volunteer Rahul deployed to Darbhanga sector",
-  "14:15 — New urgent request: Sitamarhi, 15 people, Food & Water",
-  "14:12 — Resource delivery confirmed: Chhapra evacuation centre",
-  "14:10 — 3 new volunteers registered in Vaishali district",
-  "14:08 — Critical unassigned count updated: 12 pending",
-  "14:05 — Rescue boat dispatched to Mahendrughat, Patna",
-  "14:02 — Task #DL-48317 escalated to Critical by coordinator",
-  "13:58 — Food packets distributed: 200 units, Muzaffarpur",
-  "13:55 — Volunteer Kavita completed task #DL-48329",
-  "13:52 — New request: Bagaha, 6 people, Rescue",
-  "13:49 — Medical team arrived at Laheriasarai camp",
-  "13:45 — System sync completed. 58 active requests loaded.",
-];
+// ─── Feed pool for background messages ────────────────────────────────────────
+
 const FEED_POOL = [
-  "New critical request: Muzaffarpur, 3 people, Medical Help",
-  "Volunteer Arjun marked task #DL-48355 complete",
   "Alert: Water level rising at Hajipur sector",
   "Food packets dispatched: 120 units to Saran",
-  "New volunteer registered: Anjali R., Vaishali",
-  "Task #DL-48368 accepted by Rahul in Darbhanga",
   "Shelter capacity at 80% — requesting overflow site",
   "Rescue team returned from Sitamarhi with 7 survivors",
   "Critical request closed: Patna Mahendrughat sector",
   "Coordinator updated status: Chhapra camp operational",
+  "New volunteer registered in Vaishali district",
+  "Medical team arrived at Laheriasarai camp",
+  "Resource delivery confirmed at evacuation centre",
 ];
+
+// ─── Helper ───────────────────────────────────────────────────────────────────
+
+function displayStatus(status: string): string {
+  return status === "Pending" ? "Unassigned" : status;
+}
+
+function markerColor(req: HelpRequest): string {
+  if (req.status === "Resolved") return "#16a34a";
+  return SEVERITY_COLOR[req.severity] || "#525252";
+}
+
+function feedTimestamp(): string {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
@@ -175,29 +105,80 @@ export default function CoordinatorPage() {
   const [activeTab, setActiveTab] = useState<EOCTab>("Overview");
   const [mapFilter, setMapFilter] = useState<"All" | "Critical" | "Active">("All");
   const [reqFilter, setReqFilter] = useState<"All" | "Unassigned" | "Assigned" | "Resolved">("All");
-  const [feed, setFeed] = useState(INITIAL_FEED);
+  const [feed, setFeed] = useState<string[]>([]);
   const [lastSync, setLastSync] = useState("just now");
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [highlightFirst, setHighlightFirst] = useState(false);
+  const [requests, setRequests] = useState<HelpRequest[]>([]);
+  const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
   const feedIdxRef = useRef(0);
 
+  // ── Resize handler ──────────────────────────────────────────────────────────
   useEffect(() => {
     function onResize() { setIsMobile(window.innerWidth < 768); }
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // ── Supabase fetch + real-time subscriptions ─────────────────────────────────
+  useEffect(() => {
+    Promise.all([
+      supabase.from("help_requests").select("*").order("created_at", { ascending: false }),
+      supabase.from("volunteers").select("*"),
+      supabase.from("resources").select("*"),
+    ]).then(([reqRes, volRes, resRes]) => {
+      if (reqRes.data) setRequests(reqRes.data as HelpRequest[]);
+      if (volRes.data) setVolunteers(volRes.data as Volunteer[]);
+      if (resRes.data) setResources(resRes.data as Resource[]);
+      setLastSync("just now");
+    }).catch(() => {});
+
+    const channel = supabase
+      .channel("eoc-realtime")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "help_requests" }, (payload) => {
+        const row = payload.new as HelpRequest;
+        setRequests((prev) => [row, ...prev]);
+        const ts = feedTimestamp();
+        setFeed((prev) => [`${ts} — New request: ${row.location_district}, ${row.location_state} · ${row.need_type}`, ...prev.slice(0, 24)]);
+        setHighlightFirst(true);
+        setTimeout(() => setHighlightFirst(false), 3000);
+        setLastSync("just now");
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "help_requests" }, (payload) => {
+        const row = payload.new as HelpRequest;
+        setRequests((prev) => prev.map((r) => (r.id === row.id ? row : r)));
+        const ts = feedTimestamp();
+        setFeed((prev) => [`${ts} — Request ${row.id} updated → ${displayStatus(row.status)}`, ...prev.slice(0, 24)]);
+        setHighlightFirst(true);
+        setTimeout(() => setHighlightFirst(false), 3000);
+        setLastSync("just now");
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "volunteers" }, (payload) => {
+        setVolunteers((prev) => [payload.new as Volunteer, ...prev]);
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "volunteers" }, (payload) => {
+        const row = payload.new as Volunteer;
+        setVolunteers((prev) => prev.map((v) => (v.id === row.id ? row : v)));
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "resources" }, (payload) => {
+        const row = payload.new as Resource;
+        setResources((prev) => prev.map((r) => (r.id === row.id ? row : r)));
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // ── Background feed ticker ──────────────────────────────────────────────────
   useEffect(() => {
     const interval = setInterval(() => {
       const msg = FEED_POOL[feedIdxRef.current % FEED_POOL.length];
       feedIdxRef.current++;
-      const now = new Date();
-      const hh = String(now.getHours()).padStart(2, "0");
-      const mm = String(now.getMinutes()).padStart(2, "0");
-      setFeed(prev => [`${hh}:${mm} — ${msg}`, ...prev.slice(0, 24)]);
+      setFeed(prev => [`${feedTimestamp()} — ${msg}`, ...prev.slice(0, 24)]);
       setHighlightFirst(true);
       setTimeout(() => setHighlightFirst(false), 3000);
-    }, 8000);
+    }, 12000);
     return () => clearInterval(interval);
   }, []);
 
@@ -206,25 +187,57 @@ export default function CoordinatorPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // ── Derived data ────────────────────────────────────────────────────────────
+
+  const activeRequests = useMemo(() => requests.filter(r => r.status !== "Resolved"), [requests]);
+  const resolvedRequests = useMemo(() => requests.filter(r => r.status === "Resolved"), [requests]);
+  const totalResourcesAvailable = useMemo(() => resources.reduce((s, r) => s + r.available, 0), [resources]);
+  const activeVolunteers = useMemo(() => volunteers.filter(v => v.status === "Active" || v.status === "Deployed"), [volunteers]);
+
+  const analyticsNeed = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const r of requests) { counts[r.need_type] = (counts[r.need_type] || 0) + 1; }
+    return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  }, [requests]);
+
+  const analyticsState = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const r of requests) { counts[r.location_state] = (counts[r.location_state] || 0) + 1; }
+    return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 8);
+  }, [requests]);
+
+  const needsBreakdown = useMemo(() => {
+    const total = requests.length || 1;
+    const counts: Record<string, number> = {};
+    for (const r of requests) { counts[r.need_type] = (counts[r.need_type] || 0) + 1; }
+    return ["Food & Water", "Medical Help", "Rescue", "Shelter", "Evacuation", "Other"].map(name => ({
+      name, pct: Math.round(((counts[name] || 0) / total) * 100),
+    }));
+  }, [requests]);
+
   function handleTab(tab: EOCTab) {
     setActiveTab(tab);
     if (tab === "Map") setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
   }
 
-  const filteredRequests = REQUESTS.filter(r => {
-    if (mapFilter === "All") return true;
-    if (mapFilter === "Critical") return r.severity === "Critical";
-    if (mapFilter === "Active") return r.severity !== "Resolved";
-    return true;
-  });
+  const filteredMapRequests = useMemo(() =>
+    requests.filter(r => r.latitude != null && r.longitude != null).filter(r => {
+      if (mapFilter === "All") return true;
+      if (mapFilter === "Critical") return r.severity === "Critical";
+      if (mapFilter === "Active") return r.status !== "Resolved";
+      return true;
+    }),
+  [requests, mapFilter]);
 
-  const filteredReqList = REQUESTS.filter(r => {
-    if (reqFilter === "All") return true;
-    if (reqFilter === "Resolved") return r.status === "Resolved";
-    if (reqFilter === "Unassigned") return r.status === "Unassigned";
-    if (reqFilter === "Assigned") return r.status === "Assigned" || r.status === "In Progress";
-    return true;
-  });
+  const filteredReqList = useMemo(() =>
+    requests.filter(r => {
+      if (reqFilter === "All") return true;
+      if (reqFilter === "Resolved") return r.status === "Resolved";
+      if (reqFilter === "Unassigned") return r.status === "Pending";
+      if (reqFilter === "Assigned") return r.status === "Assigned" || r.status === "In Progress";
+      return true;
+    }),
+  [requests, reqFilter]);
 
   // ── Disaster type selector (reused in sidebar + mobile overview) ──────────
 
@@ -282,10 +295,10 @@ export default function CoordinatorPage() {
       <div style={sectionLabel}>Live KPIs</div>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
         {[
-          { label: "Active Requests", value: 58, color: "#dc2626" },
-          { label: "Volunteers Deployed", value: 34, color: "#2563eb" },
-          { label: "Resources Available", value: 3118, color: "#16a34a" },
-          { label: "Resolved Today", value: 189, color: "#525252" },
+          { label: "Active Requests", value: activeRequests.length, color: "#dc2626" },
+          { label: "Volunteers Active", value: activeVolunteers.length, color: "#2563eb" },
+          { label: "Resources Available", value: totalResourcesAvailable, color: "#16a34a" },
+          { label: "Resolved", value: resolvedRequests.length, color: "#525252" },
         ].map(k => (
           <div key={k.label} style={{ padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)" }}>
             <div style={{ fontSize: 28, fontWeight: 700, color: k.color, lineHeight: 1, fontFamily: "monospace" }}>{k.value}</div>
@@ -299,11 +312,7 @@ export default function CoordinatorPage() {
         <div>
           <div style={sectionLabel}>Needs Breakdown</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: isMobile ? 24 : 0 }}>
-            {[
-              { name: "Food & Water", pct: 32 }, { name: "Medical Help", pct: 23 },
-              { name: "Rescue", pct: 20 }, { name: "Shelter", pct: 13 },
-              { name: "Evacuation", pct: 8 }, { name: "Other", pct: 4 },
-            ].map(d => (
+            {needsBreakdown.map(d => (
               <div key={d.name}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                   <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{d.name}</span>
@@ -320,20 +329,24 @@ export default function CoordinatorPage() {
         {/* Live feed */}
         <div>
           <div style={sectionLabel}>Live Feed</div>
-          <div style={{ maxHeight: 260, overflowY: "auto" }}>
-            {feed.slice(0, 10).map((event, i) => {
-              const colonIdx = event.indexOf(" — ");
-              const time = event.slice(0, colonIdx);
-              const msg = event.slice(colonIdx + 3);
-              return (
-                <div key={i} className={i === 0 && highlightFirst ? "feed-item feed-new" : "feed-item"}
-                  style={{ display: "flex", gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
-                  <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-muted)", flexShrink: 0, paddingTop: 1 }}>{time}</span>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{msg}</span>
-                </div>
-              );
-            })}
-          </div>
+          {feed.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Waiting for events…</div>
+          ) : (
+            <div style={{ maxHeight: 260, overflowY: "auto" }}>
+              {feed.slice(0, 10).map((event, i) => {
+                const colonIdx = event.indexOf(" — ");
+                const time = event.slice(0, colonIdx);
+                const msg = event.slice(colonIdx + 3);
+                return (
+                  <div key={i} className={i === 0 && highlightFirst ? "feed-item feed-new" : "feed-item"}
+                    style={{ display: "flex", gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
+                    <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-muted)", flexShrink: 0, paddingTop: 1 }}>{time}</span>
+                    <span style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{msg}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -352,7 +365,7 @@ export default function CoordinatorPage() {
           }}>{f}</button>
         ))}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)", fontFamily: "monospace" }}>
-          {filteredRequests.length} request pins · {VOLUNTEERS.length} volunteer pins
+          {filteredMapRequests.length} request pins · {activeVolunteers.length} volunteer pins
         </span>
       </div>
       {/* Legend */}
@@ -367,31 +380,31 @@ export default function CoordinatorPage() {
       <div style={{ flex: 1 }}>
         <MapContainer center={[20.5937, 78.9629]} zoom={5} style={{ height: "100%", width: "100%", background: "#111" }} zoomControl>
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution='&copy; <a href="https://carto.com/">CARTO</a>' />
-          {filteredRequests.map(r => (
-            <CircleMarker key={r.id} center={[r.lat, r.lng]}
+          {filteredMapRequests.map(r => (
+            <CircleMarker key={r.id} center={[r.latitude!, r.longitude!]}
               radius={r.severity === "Critical" ? 10 : 7}
-              pathOptions={{ color: SEVERITY_COLOR[r.severity], fillColor: SEVERITY_COLOR[r.severity], fillOpacity: 0.85, weight: 1.5 }}
+              pathOptions={{ color: markerColor(r), fillColor: markerColor(r), fillOpacity: 0.85, weight: 1.5 }}
             >
               <Popup>
                 <div style={{ fontFamily: "'Inter', sans-serif", minWidth: 180 }}>
                   <div style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: "#0a0a0a", marginBottom: 8 }}>{r.id}</div>
                   <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 12 }}>
-                    <span style={{ color: "#6b7280" }}>Need</span><span style={{ fontWeight: 500 }}>{r.needType}</span>
-                    <span style={{ color: "#6b7280" }}>Location</span><span style={{ fontWeight: 500 }}>{r.district}, {r.state}</span>
+                    <span style={{ color: "#6b7280" }}>Need</span><span style={{ fontWeight: 500 }}>{r.need_type}</span>
+                    <span style={{ color: "#6b7280" }}>Location</span><span style={{ fontWeight: 500 }}>{r.location_district}, {r.location_state}</span>
                     <span style={{ color: "#6b7280" }}>People</span><span style={{ fontWeight: 500 }}>{r.people}</span>
-                    <span style={{ color: "#6b7280" }}>Status</span><span style={{ fontWeight: 500, color: STATUS_COLOR[r.status] }}>{r.status}</span>
-                    <span style={{ color: "#6b7280" }}>Reported</span><span style={{ fontWeight: 500 }}>{r.reported}</span>
+                    <span style={{ color: "#6b7280" }}>Status</span><span style={{ fontWeight: 500, color: STATUS_COLOR[r.status] }}>{displayStatus(r.status)}</span>
                   </div>
                 </div>
               </Popup>
             </CircleMarker>
           ))}
-          {/* Volunteer pins (blue, smaller) */}
-          {VOLUNTEERS.filter(v => v.status === "Active" || v.status === "Deployed").map(v => {
-            const req = REQUESTS.find(r => r.id === v.task);
-            if (!req) return null;
+          {/* Volunteer pins (blue) - shown when volunteer has a request with coordinates */}
+          {activeVolunteers.map(v => {
+            if (!v.task_id) return null;
+            const req = requests.find(r => r.id === v.task_id);
+            if (!req?.latitude || !req?.longitude) return null;
             return (
-              <CircleMarker key={v.id} center={[req.lat + 0.05, req.lng + 0.05]}
+              <CircleMarker key={v.id} center={[req.latitude + 0.05, req.longitude + 0.05]}
                 radius={5}
                 pathOptions={{ color: "#3b82f6", fillColor: "#3b82f6", fillOpacity: 0.9, weight: 1.5 }}
               >
@@ -401,7 +414,7 @@ export default function CoordinatorPage() {
                     <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 12 }}>
                       <span style={{ color: "#6b7280" }}>Name</span><span style={{ fontWeight: 500 }}>{v.name}</span>
                       <span style={{ color: "#6b7280" }}>Skill</span><span style={{ fontWeight: 500 }}>{v.skill}</span>
-                      <span style={{ color: "#6b7280" }}>Task</span><span style={{ fontWeight: 500, color: "#2563eb" }}>{v.task}</span>
+                      <span style={{ color: "#6b7280" }}>Task</span><span style={{ fontWeight: 500, color: "#2563eb" }}>{v.task_id}</span>
                     </div>
                   </div>
                 </Popup>
@@ -436,28 +449,32 @@ export default function CoordinatorPage() {
             <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</span>
           ))}
         </div>
-        {filteredReqList.map(r => (
+        {filteredReqList.length === 0 ? (
+          <div style={{ textAlign: "center", color: "#525252", fontSize: 13, padding: "48px 16px" }}>
+            No requests found.
+          </div>
+        ) : filteredReqList.map(r => (
           <div key={r.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr 1fr" : "90px 1fr 120px 60px 100px 80px", gap: 8, padding: "12px 16px", borderBottom: "1px solid var(--border)", alignItems: "center" }}>
             <span style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text)", fontWeight: 600 }}>{r.id}</span>
             {isMobile ? (
               <>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{r.needType}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.district}, {r.state}</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{r.need_type}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.location_district}, {r.location_state}</div>
                 </div>
               </>
             ) : (
               <>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{r.district}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.state} · {r.reported}</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{r.location_district}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.location_state}</div>
                 </div>
-                <Badge label={r.needType} color={NEED_COLOR[r.needType] || "#525252"} />
+                <Badge label={r.need_type} color={NEED_COLOR[r.need_type] || "#525252"} />
                 <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)", fontFamily: "monospace" }}>{r.people}</span>
-                <Badge label={r.severity} color={SEVERITY_COLOR[r.severity]} />
+                <Badge label={r.severity} color={SEVERITY_COLOR[r.severity] || "#525252"} />
               </>
             )}
-            <Badge label={r.status} color={STATUS_COLOR[r.status]} />
+            <Badge label={displayStatus(r.status)} color={STATUS_COLOR[r.status] || "#525252"} />
           </div>
         ))}
       </div>
@@ -467,10 +484,10 @@ export default function CoordinatorPage() {
   const volunteersContent = (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ height: 44, borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 16px", gap: 12, flexShrink: 0 }}>
-        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{VOLUNTEERS.length} registered volunteers</span>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{volunteers.length} registered volunteers</span>
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>·</span>
-        <span style={{ fontSize: 12, color: "#16a34a" }}>{VOLUNTEERS.filter(v => v.status === "Active" || v.status === "Deployed").length} active</span>
-        <span style={{ fontSize: 12, color: "#d97706" }}>{VOLUNTEERS.filter(v => v.status === "Available").length} available</span>
+        <span style={{ fontSize: 12, color: "#16a34a" }}>{activeVolunteers.length} active</span>
+        <span style={{ fontSize: 12, color: "#d97706" }}>{volunteers.filter(v => v.status === "Available").length} available</span>
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 140px 80px 100px 100px", gap: 8, padding: "10px 16px", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, background: "var(--bg)", zIndex: 1 }}>
@@ -478,7 +495,11 @@ export default function CoordinatorPage() {
             <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</span>
           ))}
         </div>
-        {VOLUNTEERS.map(v => (
+        {volunteers.length === 0 ? (
+          <div style={{ textAlign: "center", color: "#525252", fontSize: 13, padding: "48px 16px" }}>
+            No volunteers registered yet.
+          </div>
+        ) : volunteers.map(v => (
           <div key={v.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 140px 80px 100px 100px", gap: 8, padding: "12px 16px", borderBottom: "1px solid var(--border)", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>{v.name}</div>
@@ -490,9 +511,9 @@ export default function CoordinatorPage() {
                 <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{v.skill}</span>
               </>
             )}
-            <Badge label={v.status} color={VOL_STATUS_COLOR[v.status]} />
+            <Badge label={v.status} color={VOL_STATUS_COLOR[v.status] || "#525252"} />
             {!isMobile && (
-              <span style={{ fontFamily: "monospace", fontSize: 12, color: v.task ? "#2563eb" : "var(--text-muted)" }}>{v.task ?? "—"}</span>
+              <span style={{ fontFamily: "monospace", fontSize: 12, color: v.task_id ? "#2563eb" : "var(--text-muted)" }}>{v.task_id ?? "—"}</span>
             )}
           </div>
         ))}
@@ -502,41 +523,45 @@ export default function CoordinatorPage() {
 
   const resourcesContent = (
     <div style={{ padding: 20, overflowY: "auto", height: "100%" }}>
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
-        {RESOURCES.map(r => {
-          const pct = Math.round((r.available / r.total) * 100);
-          const color = RESOURCE_CATEGORY_COLOR[r.category] || "#525252";
-          return (
-            <div key={r.name} style={{ padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)" }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{r.location}</div>
+      {resources.length === 0 ? (
+        <div style={{ textAlign: "center", color: "#525252", fontSize: 13, padding: "48px 0" }}>No resources loaded.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+          {resources.map(r => {
+            const pct = r.total > 0 ? Math.round((r.available / r.total) * 100) : 0;
+            const color = RESOURCE_CATEGORY_COLOR[r.category] || "#525252";
+            return (
+              <div key={r.id} style={{ padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{r.location}</div>
+                  </div>
+                  <Badge label={r.category} color={color} />
                 </div>
-                <Badge label={r.category} color={color} />
+                <div style={{ display: "flex", gap: 16, marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", fontFamily: "monospace", lineHeight: 1 }}>{r.available}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Available</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-muted)", fontFamily: "monospace", lineHeight: 1 }}>{r.deployed}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Deployed</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-muted)", fontFamily: "monospace", lineHeight: 1 }}>{r.total}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Total</div>
+                  </div>
+                </div>
+                <div style={{ height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2 }} />
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>{pct}% available</div>
               </div>
-              <div style={{ display: "flex", gap: 16, marginBottom: 8 }}>
-                <div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", fontFamily: "monospace", lineHeight: 1 }}>{r.available}</div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Available</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-muted)", fontFamily: "monospace", lineHeight: 1 }}>{r.deployed}</div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Deployed</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-muted)", fontFamily: "monospace", lineHeight: 1 }}>{r.total}</div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Total</div>
-                </div>
-              </div>
-              <div style={{ height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
-                <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2 }} />
-              </div>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>{pct}% available</div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 
@@ -546,43 +571,51 @@ export default function CoordinatorPage() {
         {/* Requests by need type */}
         <div style={{ marginBottom: isMobile ? 28 : 0 }}>
           <div style={sectionLabel}>Requests by Need Type</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {ANALYTICS_NEED.map(d => {
-              const max = Math.max(...ANALYTICS_NEED.map(x => x.count));
-              return (
-                <div key={d.name}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{d.name}</span>
-                    <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "monospace" }}>{d.count}</span>
+          {analyticsNeed.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>No data yet.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {analyticsNeed.map(d => {
+                const max = Math.max(...analyticsNeed.map(x => x.count), 1);
+                return (
+                  <div key={d.name}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{d.name}</span>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "monospace" }}>{d.count}</span>
+                    </div>
+                    <div style={{ height: 6, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${(d.count / max) * 100}%`, background: NEED_COLOR[d.name] || "var(--text)", borderRadius: 3 }} />
+                    </div>
                   </div>
-                  <div style={{ height: 6, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${(d.count / max) * 100}%`, background: NEED_COLOR[d.name] || "var(--text)", borderRadius: 3 }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Requests by state */}
         <div style={{ marginBottom: isMobile ? 28 : 0 }}>
           <div style={sectionLabel}>Requests by State</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {ANALYTICS_STATE.map(d => {
-              const max = Math.max(...ANALYTICS_STATE.map(x => x.count));
-              return (
-                <div key={d.name}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{d.name}</span>
-                    <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "monospace" }}>{d.count}</span>
+          {analyticsState.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>No data yet.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {analyticsState.map(d => {
+                const max = Math.max(...analyticsState.map(x => x.count), 1);
+                return (
+                  <div key={d.name}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{d.name}</span>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "monospace" }}>{d.count}</span>
+                    </div>
+                    <div style={{ height: 6, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${(d.count / max) * 100}%`, background: disasterColor, borderRadius: 3 }} />
+                    </div>
                   </div>
-                  <div style={{ height: 6, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${(d.count / max) * 100}%`, background: disasterColor, borderRadius: 3 }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Resolution rate trend */}
@@ -603,10 +636,10 @@ export default function CoordinatorPage() {
         <div>
           <div style={sectionLabel}>Response Summary</div>
           {[
-            { label: "Avg. Response Time", value: "28 min" },
-            { label: "Critical Resolution Rate", value: "71%" },
-            { label: "Volunteer Utilisation", value: "83%" },
-            { label: "Resource Deployment", value: "47%" },
+            { label: "Total Requests", value: requests.length },
+            { label: "Pending / Unassigned", value: requests.filter(r => r.status === "Pending").length },
+            { label: "Assigned / In Progress", value: requests.filter(r => r.status === "Assigned" || r.status === "In Progress").length },
+            { label: "Resolved", value: resolvedRequests.length },
           ].map(s => (
             <div key={s.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>
               <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.label}</span>

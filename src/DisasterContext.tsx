@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import { supabase } from "./lib/supabase";
 
 export type DisasterType =
   | "Flood"
@@ -70,13 +71,46 @@ export function DisasterProvider({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, disasterType);
-    } catch {}
+    try { localStorage.setItem(STORAGE_KEY, disasterType); } catch {}
   }, [disasterType]);
+
+  useEffect(() => {
+    supabase
+      .from("disasters")
+      .select("*")
+      .eq("is_active", true)
+      .order("id", { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          const d = data[0];
+          if (DISASTER_TYPES.includes(d.type as DisasterType)) {
+            setDisasterTypeState(d.type as DisasterType);
+          }
+        }
+      })
+      .catch(() => {});
+
+    const channel = supabase
+      .channel("disasters-global")
+      .on("postgres_changes", { event: "*", schema: "public", table: "disasters" }, (payload) => {
+        const d = payload.new as { type: string; is_active: boolean } | null;
+        if (d && d.is_active && DISASTER_TYPES.includes(d.type as DisasterType)) {
+          setDisasterTypeState(d.type as DisasterType);
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   function setDisasterType(type: DisasterType) {
     setDisasterTypeState(type);
+    supabase
+      .from("disasters")
+      .upsert({ type, name: buildDisasterName(type), is_active: true }, { onConflict: "is_active" })
+      .then(() => {})
+      .catch(() => {});
   }
 
   return (
