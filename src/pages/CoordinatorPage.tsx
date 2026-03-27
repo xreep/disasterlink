@@ -351,14 +351,13 @@ export default function CoordinatorPage() {
           ) : (
             <div style={{ maxHeight: 260, overflowY: "auto" }}>
               {feed.slice(0, 10).map((event, i) => {
-                const colonIdx = event.indexOf(" — ");
-                const time = event.slice(0, colonIdx);
-                const msg = event.slice(colonIdx + 3);
+                const time = formatFeedTime(event.timestamp);
+                const msg = `${event.eventType} — ${event.victimName} needs ${event.needType} in ${event.locationDistrict}, ${event.locationState}`;
                 return (
-                  <div key={i} className={i === 0 && highlightFirst ? "feed-item feed-new" : "feed-item"}
+                  <div key={event.key} className={i === 0 && highlightFirst ? "feed-item feed-new" : "feed-item"}
                     style={{ display: "flex", gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
                     <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-muted)", flexShrink: 0, paddingTop: 1 }}>{time}</span>
-                    <span style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{msg}</span>
+                    <span style={{ fontSize: 12, color: feedColor(event.status), lineHeight: 1.5 }}>{msg}</span>
                   </div>
                 );
               })}
