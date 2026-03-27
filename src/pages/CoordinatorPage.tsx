@@ -46,19 +46,18 @@ const RESOLUTION_TREND = [
   { day: "Sun", pct: 78 },
 ];
 
-// ─── Feed pool for background messages ────────────────────────────────────────
+// ─── Feed event type ──────────────────────────────────────────────────────────
 
-const FEED_POOL = [
-  "Alert: Water level rising at Hajipur sector",
-  "Food packets dispatched: 120 units to Saran",
-  "Shelter capacity at 80% — requesting overflow site",
-  "Rescue team returned from Sitamarhi with 7 survivors",
-  "Critical request closed: Patna Mahendrughat sector",
-  "Coordinator updated status: Chhapra camp operational",
-  "New volunteer registered in Vaishali district",
-  "Medical team arrived at Laheriasarai camp",
-  "Resource delivery confirmed at evacuation centre",
-];
+interface FeedEvent {
+  key: string;
+  eventType: "New Request" | "Status Updated" | "Resolved";
+  victimName: string;
+  needType: string;
+  locationDistrict: string;
+  locationState: string;
+  timestamp: string;
+  status: string;
+}
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
@@ -71,9 +70,38 @@ function markerColor(req: HelpRequest): string {
   return SEVERITY_COLOR[req.severity] || "#525252";
 }
 
-function feedTimestamp(): string {
-  const now = new Date();
-  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+function feedColor(status: string): string {
+  if (status === "Resolved") return "#16a34a";
+  if (status === "Assigned" || status === "In Progress") return "#d97706";
+  return "#dc2626";
+}
+
+function feedEventType(status: string): FeedEvent["eventType"] {
+  if (status === "Resolved") return "Resolved";
+  if (status === "Assigned" || status === "In Progress") return "Status Updated";
+  return "New Request";
+}
+
+function requestToFeedEvent(req: HelpRequest, ts?: string): FeedEvent {
+  return {
+    key: `${req.id}-${req.status}`,
+    eventType: feedEventType(req.status),
+    victimName: req.victim_name?.trim() || "Unknown",
+    needType: req.need_type,
+    locationDistrict: req.location_district,
+    locationState: req.location_state,
+    timestamp: ts ?? req.created_at,
+    status: req.status,
+  };
+}
+
+function formatFeedTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  } catch {
+    return "--:--";
+  }
 }
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
@@ -105,14 +133,13 @@ export default function CoordinatorPage() {
   const [activeTab, setActiveTab] = useState<EOCTab>("Overview");
   const [mapFilter, setMapFilter] = useState<"All" | "Critical" | "Active">("All");
   const [reqFilter, setReqFilter] = useState<"All" | "Unassigned" | "Assigned" | "Resolved">("All");
-  const [feed, setFeed] = useState<string[]>([]);
+  const [feed, setFeed] = useState<FeedEvent[]>([]);
   const [lastSync, setLastSync] = useState("just now");
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [highlightFirst, setHighlightFirst] = useState(false);
   const [requests, setRequests] = useState<HelpRequest[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
-  const feedIdxRef = useRef(0);
 
   // ── Resize handler ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -128,7 +155,11 @@ export default function CoordinatorPage() {
       supabase.from("volunteers").select("*"),
       supabase.from("resources").select("*"),
     ]).then(([reqRes, volRes, resRes]) => {
-      if (reqRes.data) setRequests(reqRes.data as HelpRequest[]);
+      if (reqRes.data) {
+        const rows = reqRes.data as HelpRequest[];
+        setRequests(rows);
+        setFeed(rows.map(r => requestToFeedEvent(r)));
+      }
       if (volRes.data) setVolunteers(volRes.data as Volunteer[]);
       if (resRes.data) setResources(resRes.data as Resource[]);
       setLastSync("just now");
@@ -139,8 +170,7 @@ export default function CoordinatorPage() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "help_requests" }, (payload) => {
         const row = payload.new as HelpRequest;
         setRequests((prev) => [row, ...prev]);
-        const ts = feedTimestamp();
-        setFeed((prev) => [`${ts} — New request: ${row.location_district}, ${row.location_state} · ${row.need_type}`, ...prev.slice(0, 24)]);
+        setFeed((prev) => [requestToFeedEvent(row, new Date().toISOString()), ...prev]);
         setHighlightFirst(true);
         setTimeout(() => setHighlightFirst(false), 3000);
         setLastSync("just now");
@@ -148,8 +178,7 @@ export default function CoordinatorPage() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "help_requests" }, (payload) => {
         const row = payload.new as HelpRequest;
         setRequests((prev) => prev.map((r) => (r.id === row.id ? row : r)));
-        const ts = feedTimestamp();
-        setFeed((prev) => [`${ts} — Request ${row.id} updated → ${displayStatus(row.status)}`, ...prev.slice(0, 24)]);
+        setFeed((prev) => [requestToFeedEvent(row, new Date().toISOString()), ...prev]);
         setHighlightFirst(true);
         setTimeout(() => setHighlightFirst(false), 3000);
         setLastSync("just now");
@@ -168,18 +197,6 @@ export default function CoordinatorPage() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
-
-  // ── Background feed ticker ──────────────────────────────────────────────────
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const msg = FEED_POOL[feedIdxRef.current % FEED_POOL.length];
-      feedIdxRef.current++;
-      setFeed(prev => [`${feedTimestamp()} — ${msg}`, ...prev.slice(0, 24)]);
-      setHighlightFirst(true);
-      setTimeout(() => setHighlightFirst(false), 3000);
-    }, 12000);
-    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
