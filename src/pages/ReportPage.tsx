@@ -9,9 +9,11 @@ import { enqueueHelpRequest } from "../lib/offlineQueue";
 import {
   getProfile,
   isSetupDone,
+  shortUserAgent,
   type EmergencyProfile,
 } from "../lib/emergencyProfile";
 import { EmergencyProfileSetup } from "../components/EmergencyProfileSetup";
+import { SOSCountdown } from "../components/SOSCountdown";
 
 type SOSState = "idle" | "locating" | "sent" | "offline" | "denied" | "error";
 
@@ -52,6 +54,7 @@ export default function ReportPage() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [sosState, setSOSState] = useState<SOSState>("idle");
   const [sosTicketId, setSOSTicketId] = useState<string | null>(null);
+  const [showCountdown, setShowCountdown] = useState(false);
   const [showSetup, setShowSetup] = useState(() => !isSetupDone());
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [profile, setProfile] = useState<EmergencyProfile | null>(() => getProfile());
@@ -93,14 +96,21 @@ export default function ReportPage() {
     if (savedProfile) setProfile(savedProfile);
   }
 
-  async function handleSOS() {
-    if (sosState === "locating") return;
+  async function fireSOS() {
+    setShowCountdown(false);
     const id = generateSOSId();
     setSOSTicketId(id);
     const currentProfile = getProfile();
 
     const victimName = currentProfile?.name?.trim() || "Unknown";
-    const victimPhone = currentProfile?.phone?.trim() || null;
+    const victimPhone = currentProfile?.phone?.trim() || "Unknown";
+    const contactName = currentProfile?.contactName?.trim() || "Unknown";
+    const contactPhone = currentProfile?.contactPhone?.trim() || "Unknown";
+    const deviceInfo = shortUserAgent();
+
+    function buildDescription(gpsStr: string) {
+      return `SOS | GPS: ${gpsStr} | EC: ${contactName} (${contactPhone}) | Device: ${deviceInfo}`;
+    }
 
     if (!isOnline) {
       const payload = {
@@ -108,9 +118,9 @@ export default function ReportPage() {
         victim_name: victimName,
         victim_phone: victimPhone,
         need_type: "SOS - Emergency",
-        description: "SOS button — location unknown (offline)",
-        location_state: "Locating...",
-        location_district: "Locating...",
+        description: buildDescription("unavailable (offline)"),
+        location_state: "Unknown",
+        location_district: "Unknown",
         latitude: null,
         longitude: null,
         severity: "Critical",
@@ -125,8 +135,32 @@ export default function ReportPage() {
 
     setSOSState("locating");
 
+    async function submitWithCoords(lat: number | null, lng: number | null, gpsStr: string) {
+      const payload = {
+        id,
+        victim_name: victimName,
+        victim_phone: victimPhone,
+        need_type: "SOS - Emergency",
+        description: buildDescription(gpsStr),
+        location_state: "Locating...",
+        location_district: "Locating...",
+        latitude: lat,
+        longitude: lng,
+        severity: "Critical",
+        people: 1,
+        status: "Pending",
+        source: "sos_button",
+      };
+      const { error } = await supabase.from("help_requests").insert(payload);
+      if (error) {
+        setSOSState("error");
+      } else {
+        setSOSState("sent");
+      }
+    }
+
     if (!navigator.geolocation) {
-      setSOSState("denied");
+      await submitWithCoords(null, null, "unavailable");
       return;
     }
 
@@ -134,30 +168,10 @@ export default function ReportPage() {
       async (pos) => {
         const lat = +pos.coords.latitude.toFixed(5);
         const lng = +pos.coords.longitude.toFixed(5);
-        const payload = {
-          id,
-          victim_name: victimName,
-          victim_phone: victimPhone,
-          need_type: "SOS - Emergency",
-          description: `SOS button tap — GPS: ${lat}° N, ${lng}° E`,
-          location_state: "Locating...",
-          location_district: "Locating...",
-          latitude: lat,
-          longitude: lng,
-          severity: "Critical",
-          people: 1,
-          status: "Pending",
-          source: "sos_button",
-        };
-        const { error } = await supabase.from("help_requests").insert(payload);
-        if (error) {
-          setSOSState("error");
-        } else {
-          setSOSState("sent");
-        }
+        await submitWithCoords(lat, lng, `${lat}°N ${lng}°E`);
       },
-      () => {
-        setSOSState("denied");
+      async () => {
+        await submitWithCoords(null, null, "denied");
       },
       { timeout: 10000, enableHighAccuracy: true }
     );
@@ -412,7 +426,7 @@ export default function ReportPage() {
         <div>
           <button
             type="button"
-            onClick={handleSOS}
+            onClick={() => setShowCountdown(true)}
             disabled={sosState === "locating"}
             className={sosState === "idle" ? "sos-pulse" : undefined}
             style={{
@@ -550,6 +564,12 @@ export default function ReportPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: "'Inter', sans-serif", color: "var(--text)" }}>
+      {showCountdown && (
+        <SOSCountdown
+          onFired={fireSOS}
+          onCancelled={() => setShowCountdown(false)}
+        />
+      )}
       {showSetup && (
         <EmergencyProfileSetup onDone={handleSetupDone} />
       )}

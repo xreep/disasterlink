@@ -105,6 +105,19 @@ function isSOSRequest(req: HelpRequest): boolean {
   return req.need_type === "SOS - Emergency";
 }
 
+function parseSOSDescription(desc: string | null): Record<string, string> | null {
+  if (!desc?.startsWith("SOS |")) return null;
+  const result: Record<string, string> = {};
+  const parts = desc.split(" | ");
+  for (const p of parts.slice(1)) {
+    const colonIdx = p.indexOf(": ");
+    if (colonIdx > -1) {
+      result[p.slice(0, colonIdx)] = p.slice(colonIdx + 2);
+    }
+  }
+  return result;
+}
+
 function markerColor(req: HelpRequest): string {
   if (isSOSRequest(req) && req.status !== "Resolved") return "#ff0000";
   if (req.status === "Resolved") return "#16a34a";
@@ -752,16 +765,36 @@ export default function CoordinatorPage() {
               pathOptions={{ color: markerColor(r), fillColor: markerColor(r), fillOpacity: isSOSRequest(r) ? 1 : 0.85, weight: isSOSRequest(r) ? 3 : 1.5 }}
             >
               <Popup>
-                <div style={{ fontFamily: "'Inter', sans-serif", minWidth: 190 }}>
-                  <div style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: "#0a0a0a", marginBottom: 8 }}>{r.id}</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 12 }}>
-                    {r.victim_name && <><span style={{ color: "#6b7280" }}>Name</span><span style={{ fontWeight: 500 }}>{r.victim_name}</span></>}
-                    <span style={{ color: "#6b7280" }}>Need</span><span style={{ fontWeight: 500 }}>{r.need_type}</span>
-                    <span style={{ color: "#6b7280" }}>District</span><span style={{ fontWeight: 500 }}>{r.location_district}</span>
-                    <span style={{ color: "#6b7280" }}>State</span><span style={{ fontWeight: 500 }}>{r.location_state}</span>
-                    <span style={{ color: "#6b7280" }}>Status</span><span style={{ fontWeight: 500, color: STATUS_COLOR[r.status] }}>{displayStatus(r.status)}</span>
-                  </div>
-                </div>
+                {(() => {
+                  const sosParsed = parseSOSDescription(r.description);
+                  return (
+                    <div style={{ fontFamily: "'Inter', sans-serif", minWidth: 210 }}>
+                      {isSOSRequest(r) && (
+                        <div style={{ background: "#dc2626", color: "#fff", fontWeight: 700, fontSize: 11, letterSpacing: "0.12em", padding: "3px 8px", borderRadius: 3, marginBottom: 8, display: "inline-block" }}>
+                          ⚠ SOS EMERGENCY
+                        </div>
+                      )}
+                      <div style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#0a0a0a", marginBottom: 8 }}>{r.id}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 12 }}>
+                        {r.victim_name && <><span style={{ color: "#6b7280" }}>Name</span><span style={{ fontWeight: 500 }}>{r.victim_name}</span></>}
+                        {r.victim_phone && r.victim_phone !== "Unknown" && <><span style={{ color: "#6b7280" }}>Phone</span><span style={{ fontWeight: 500 }}>{r.victim_phone}</span></>}
+                        {sosParsed?.EC && sosParsed.EC !== "Unknown (Unknown)" && (
+                          <><span style={{ color: "#6b7280" }}>Emrg. Contact</span><span style={{ fontWeight: 500 }}>{sosParsed.EC}</span></>
+                        )}
+                        {sosParsed?.GPS && (
+                          <><span style={{ color: "#6b7280" }}>GPS</span><span style={{ fontWeight: 500, fontFamily: "monospace", fontSize: 11 }}>{sosParsed.GPS}</span></>
+                        )}
+                        {sosParsed?.Device && (
+                          <><span style={{ color: "#6b7280" }}>Device</span><span style={{ fontWeight: 500 }}>{sosParsed.Device}</span></>
+                        )}
+                        {!sosParsed && <><span style={{ color: "#6b7280" }}>Need</span><span style={{ fontWeight: 500 }}>{r.need_type}</span></>}
+                        <span style={{ color: "#6b7280" }}>District</span><span style={{ fontWeight: 500 }}>{r.location_district}</span>
+                        <span style={{ color: "#6b7280" }}>State</span><span style={{ fontWeight: 500 }}>{r.location_state}</span>
+                        <span style={{ color: "#6b7280" }}>Status</span><span style={{ fontWeight: 500, color: STATUS_COLOR[r.status] }}>{displayStatus(r.status)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </Popup>
             </CircleMarker>
           ))}

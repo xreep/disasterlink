@@ -40,3 +40,26 @@ export function parseDeviceName(): string {
   if (/Linux/.test(ua)) return "Linux User";
   return "";
 }
+
+export function shortUserAgent(): string {
+  const ua = navigator.userAgent;
+  if (/iPhone/.test(ua)) {
+    const os = /OS ([\d_]+)/.exec(ua);
+    return `iPhone / iOS ${os ? os[1].replace(/_/g, ".") : ""}`;
+  }
+  if (/iPad/.test(ua)) return "iPad / iOS";
+  if (/Android/.test(ua)) {
+    const ver = /Android ([\d.]+)/.exec(ua);
+    const browser = /Chrome/.test(ua) ? "Chrome" : /Firefox/.test(ua) ? "Firefox" : "Browser";
+    return `Android ${ver ? ver[1] : ""} / ${browser}`;
+  }
+  if (/Windows/.test(ua)) {
+    const browser = /Chrome/.test(ua) ? "Chrome" : /Firefox/.test(ua) ? "Firefox" : /Edge/.test(ua) ? "Edge" : "Browser";
+    return `Windows / ${browser}`;
+  }
+  if (/Mac/.test(ua)) {
+    const browser = /Chrome/.test(ua) ? "Chrome" : /Firefox/.test(ua) ? "Firefox" : /Safari/.test(ua) ? "Safari" : "Browser";
+    return `Mac / ${browser}`;
+  }
+  return ua.slice(0, 60);
+}
