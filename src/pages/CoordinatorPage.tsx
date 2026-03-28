@@ -144,12 +144,42 @@ function CoordinatorLoginModal({
     if (!email.trim() || !password) { setError("Please fill in all fields."); return; }
     setLoading(true);
     setError(null);
-    const { data, error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (authError || !data.user) {
-      setError("Invalid email or password.");
+
+    console.log("[CoordinatorAuth] Attempting login for:", email.trim());
+
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    console.log("[CoordinatorAuth] Result:", {
+      user: data?.user?.email ?? null,
+      errorCode: authError?.code ?? null,
+      errorMessage: authError?.message ?? null,
+      errorStatus: authError?.status ?? null,
+    });
+
+    if (authError) {
+      let msg = authError.message || "Authentication failed.";
+      if (authError.message?.toLowerCase().includes("email not confirmed")) {
+        msg = "Email not confirmed. Please check your inbox and confirm the account before logging in.";
+      } else if (authError.message?.toLowerCase().includes("invalid login")) {
+        msg = "Invalid email or password. Check credentials and try again.";
+      } else if (authError.status === 400) {
+        msg = `Login failed: ${authError.message}`;
+      }
+      setError(msg);
       setLoading(false);
       return;
     }
+
+    if (!data.user) {
+      setError("Login succeeded but no user was returned. Check Supabase Auth settings.");
+      setLoading(false);
+      return;
+    }
+
+    console.log("[CoordinatorAuth] Logged in as:", data.user.email);
     onLogin(data.user);
   }
 
@@ -192,7 +222,14 @@ function CoordinatorLoginModal({
             <input type="password" placeholder="Enter password" value={password} onChange={(e) => setPassword(e.target.value)} style={inputStyle} />
           </div>
           {error && (
-            <div style={{ fontSize: 12, color: "#dc2626", background: "#dc262610", border: "1px solid #dc262630", borderRadius: 4, padding: "8px 10px" }}>{error}</div>
+            <div style={{ fontSize: 12, color: "#dc2626", background: "#dc262610", border: "1px solid #dc262630", borderRadius: 4, padding: "10px 12px", lineHeight: 1.5 }}>
+              {error}
+              {error.includes("not confirmed") && (
+                <div style={{ marginTop: 8, fontSize: 11, color: "#dc2626", borderTop: "1px solid #dc262630", paddingTop: 8 }}>
+                  Fix: Go to Supabase Dashboard → Authentication → Users → find your account → "Send confirmation email", or disable "Enable email confirmations" in Authentication → Settings.
+                </div>
+              )}
+            </div>
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <button type="button" onClick={onClose} style={{ flex: 1, height: 38, background: "none", border: "1px solid var(--border)", borderRadius: 5, fontSize: 13, color: "var(--text-muted)", cursor: "pointer" }}>
