@@ -68,7 +68,8 @@ function displayStatus(status: string): string {
 
 function markerColor(req: HelpRequest): string {
   if (req.status === "Resolved") return "#16a34a";
-  return SEVERITY_COLOR[req.severity] || "#525252";
+  if (req.status === "Assigned" || req.status === "In Progress") return "#d97706";
+  return "#dc2626";
 }
 
 function feedColor(status: string): string {
@@ -394,7 +395,6 @@ export default function CoordinatorPage() {
 
   function handleTab(tab: EOCTab) {
     setActiveTab(tab);
-    if (tab === "Map") setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
   }
 
   const filteredMapRequests = useMemo(() =>
@@ -560,7 +560,7 @@ export default function CoordinatorPage() {
       </div>
       {/* Legend */}
       <div style={{ height: 36, display: "flex", alignItems: "center", gap: 16, padding: "0 16px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-        {[{ label: "Critical", color: "#dc2626" }, { label: "Urgent", color: "#d97706" }, { label: "Resolved", color: "#16a34a" }, { label: "Volunteer", color: "#3b82f6" }].map(l => (
+        {[{ label: "Pending", color: "#dc2626" }, { label: "Assigned", color: "#d97706" }, { label: "Resolved", color: "#16a34a" }, { label: "Volunteer", color: "#3b82f6" }].map(l => (
           <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: l.color }} />
             <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{l.label}</span>
@@ -576,12 +576,13 @@ export default function CoordinatorPage() {
               pathOptions={{ color: markerColor(r), fillColor: markerColor(r), fillOpacity: 0.85, weight: 1.5 }}
             >
               <Popup>
-                <div style={{ fontFamily: "'Inter', sans-serif", minWidth: 180 }}>
+                <div style={{ fontFamily: "'Inter', sans-serif", minWidth: 190 }}>
                   <div style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: "#0a0a0a", marginBottom: 8 }}>{r.id}</div>
                   <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 12 }}>
+                    {r.victim_name && <><span style={{ color: "#6b7280" }}>Name</span><span style={{ fontWeight: 500 }}>{r.victim_name}</span></>}
                     <span style={{ color: "#6b7280" }}>Need</span><span style={{ fontWeight: 500 }}>{r.need_type}</span>
-                    <span style={{ color: "#6b7280" }}>Location</span><span style={{ fontWeight: 500 }}>{r.location_district}, {r.location_state}</span>
-                    <span style={{ color: "#6b7280" }}>People</span><span style={{ fontWeight: 500 }}>{r.people}</span>
+                    <span style={{ color: "#6b7280" }}>District</span><span style={{ fontWeight: 500 }}>{r.location_district}</span>
+                    <span style={{ color: "#6b7280" }}>State</span><span style={{ fontWeight: 500 }}>{r.location_state}</span>
                     <span style={{ color: "#6b7280" }}>Status</span><span style={{ fontWeight: 500, color: STATUS_COLOR[r.status] }}>{displayStatus(r.status)}</span>
                   </div>
                 </div>
@@ -975,11 +976,20 @@ export default function CoordinatorPage() {
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {tabBar}
-          {TABS.map(tab => (
-            <div key={tab} style={{ flex: 1, overflow: "hidden", display: activeTab === tab ? "flex" : "none", flexDirection: "column" }}>
-              {tabContent[tab]}
-            </div>
-          ))}
+          {TABS.map(tab => {
+            if (tab === "Map") {
+              return activeTab === "Map" ? (
+                <div key="Map" style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                  {tabContent["Map"]}
+                </div>
+              ) : null;
+            }
+            return (
+              <div key={tab} style={{ flex: 1, overflow: "hidden", display: activeTab === tab ? "flex" : "none", flexDirection: "column" }}>
+                {tabContent[tab]}
+              </div>
+            );
+          })}
         </div>
       </div>
 
