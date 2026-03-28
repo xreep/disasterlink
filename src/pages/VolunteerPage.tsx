@@ -1,10 +1,38 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Navigation, ArrowLeft, Clock, Sun, Moon, LogOut } from "lucide-react";
+import { Navigation, ArrowLeft, Clock, Sun, Moon, LogOut, WifiOff } from "lucide-react";
 import { useDisaster } from "../DisasterContext";
 import { useTheme } from "../ThemeContext";
 import { supabase, type HelpRequest } from "../lib/supabase";
 import { getVolunteerSession, clearVolunteerSession } from "../lib/volunteerAuth";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
+
+const VOLUNTEER_CACHE_KEY = "disasterlink_volunteer_requests";
+
+interface VolunteerCache {
+  requests: HelpRequest[];
+  cachedAt: number;
+}
+
+function saveCache(requests: HelpRequest[]) {
+  const cache: VolunteerCache = { requests, cachedAt: Date.now() };
+  localStorage.setItem(VOLUNTEER_CACHE_KEY, JSON.stringify(cache));
+}
+
+function loadCache(): VolunteerCache | null {
+  try {
+    const raw = localStorage.getItem(VOLUNTEER_CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as VolunteerCache;
+  } catch {
+    return null;
+  }
+}
+
+function formatCacheTime(ts: number): string {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 
 type Severity = "Critical" | "Urgent" | "Moderate";
 type Tab = "Assigned" | "Open";
@@ -29,11 +57,13 @@ export default function VolunteerPage() {
   const navigate = useNavigate();
   const { disasterName } = useDisaster();
   const { theme, toggleTheme } = useTheme();
+  const { isOnline } = useOnlineStatus();
   const session = getVolunteerSession();
   const [tab, setTab] = useState<Tab>("Assigned");
   const [requests, setRequests] = useState<HelpRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusOn, setStatusOn] = useState(true);
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isNarrow, setIsNarrow] = useState(window.innerWidth < 480);
 
@@ -47,17 +77,35 @@ export default function VolunteerPage() {
   }, []);
 
   useEffect(() => {
+    if (!isOnline) {
+      const cache = loadCache();
+      if (cache) {
+        setRequests(cache.requests);
+        setCachedAt(cache.cachedAt);
+      }
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setCachedAt(null);
     supabase
       .from("help_requests")
       .select("*")
       .in("status", ["Pending", "Assigned", "In Progress"])
       .order("created_at", { ascending: false })
       .then(({ data }) => {
-        if (data) setRequests(data as HelpRequest[]);
+        if (data) {
+          const rows = data as HelpRequest[];
+          setRequests(rows);
+          saveCache(rows);
+        }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        const cache = loadCache();
+        if (cache) { setRequests(cache.requests); setCachedAt(cache.cachedAt); }
+        setLoading(false);
+      });
 
     const channel = supabase
       .channel("volunteer-requests")
@@ -92,7 +140,7 @@ export default function VolunteerPage() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [isOnline]);
 
   async function handleAccept(id: string) {
     await supabase
@@ -266,6 +314,30 @@ export default function VolunteerPage() {
           ))}
         </div>
 
+        {/* Cached data notice */}
+        {!isOnline && cachedAt && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "8px 12px", marginBottom: 10,
+            background: "#92400e14", border: "1px solid #d97706",
+            borderRadius: 6, fontSize: 12, color: "#d97706",
+          }}>
+            <WifiOff size={12} />
+            Cached data — last updated {formatCacheTime(cachedAt)}
+          </div>
+        )}
+        {!isOnline && !cachedAt && !loading && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "8px 12px", marginBottom: 10,
+            background: "#92400e14", border: "1px solid #d97706",
+            borderRadius: 6, fontSize: 12, color: "#d97706",
+          }}>
+            <WifiOff size={12} />
+            You are offline — no cached data available yet
+          </div>
+        )}
+
         {/* Task list */}
         {loading ? (
           <div style={{ textAlign: "center", color: "#525252", fontSize: 14, padding: "48px 16px" }}>
@@ -329,14 +401,23 @@ export default function VolunteerPage() {
                         <Navigation size={12} /> Directions
                       </button>
                       <button
-                        onClick={() => req.status === "Pending" ? handleAccept(req.id) : handleComplete(req.id)}
+                        onClick={() => {
+                          if (!isOnline) return;
+                          if (req.status === "Pending") handleAccept(req.id);
+                          else handleComplete(req.id);
+                        }}
+                        disabled={!isOnline}
+                        title={!isOnline ? "Internet required to accept tasks" : undefined}
                         style={{
                           fontSize: 12, fontWeight: 600,
-                          color: "var(--bg)", background: "var(--text)",
-                          border: "none", borderRadius: 4,
+                          color: !isOnline ? "var(--text-muted)" : "var(--bg)",
+                          background: !isOnline ? "var(--surface)" : "var(--text)",
+                          border: !isOnline ? "1px solid var(--border)" : "none",
+                          borderRadius: 4,
                           padding: isMobile ? "0 14px" : "6px 14px",
                           height: isMobile ? 40 : "auto",
-                          cursor: "pointer",
+                          cursor: !isOnline ? "not-allowed" : "pointer",
+                          opacity: !isOnline ? 0.6 : 1,
                         }}
                       >
                         {req.status === "Pending" ? "Accept" : "Complete"}

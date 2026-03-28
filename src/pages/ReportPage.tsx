@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Plus, Minus, ArrowLeft, ChevronDown, Sun, Moon } from "lucide-react";
+import { MapPin, Plus, Minus, ArrowLeft, ChevronDown, Sun, Moon, WifiOff } from "lucide-react";
 import { INDIA_STATES, getDistricts } from "../lib/india-geo";
 import { useTheme } from "../ThemeContext";
 import { supabase } from "../lib/supabase";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
+import { enqueueHelpRequest } from "../lib/offlineQueue";
 
 const NEED_TYPES = ["Food & Water", "Medical Help", "Shelter", "Rescue", "Evacuation", "Other"];
 const SEVERITY_OPTIONS = [
@@ -19,6 +21,7 @@ function generateTicketId() {
 export default function ReportPage() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+  const { isOnline } = useOnlineStatus();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [selectedState, setSelectedState] = useState("");
@@ -30,6 +33,7 @@ export default function ReportPage() {
   const [severity, setSeverity] = useState<string | null>(null);
   const [people, setPeople] = useState(1);
   const [submitted, setSubmitted] = useState(false);
+  const [savedOffline, setSavedOffline] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [ticketId] = useState(generateTicketId);
@@ -67,7 +71,8 @@ export default function ReportPage() {
     if (!needType || !severity || !selectedState || !selectedDistrict) return;
     setSubmitting(true);
     setSubmitError(null);
-    const { error } = await supabase.from("help_requests").insert({
+
+    const payload = {
       id: ticketId,
       victim_name: name || null,
       victim_phone: phone || null,
@@ -81,11 +86,22 @@ export default function ReportPage() {
       people,
       status: "Pending",
       source: "web",
-    });
+    };
+
+    if (!isOnline) {
+      enqueueHelpRequest(payload as Record<string, unknown>);
+      setSubmitting(false);
+      setSavedOffline(true);
+      setSubmitted(true);
+      return;
+    }
+
+    const { error } = await supabase.from("help_requests").insert(payload);
     setSubmitting(false);
     if (error) {
       setSubmitError("Could not submit request. Please try again.");
     } else {
+      setSavedOffline(false);
       setSubmitted(true);
     }
   }
@@ -208,32 +224,56 @@ export default function ReportPage() {
             <div style={{ fontFamily: "monospace", fontSize: 36, fontWeight: 700, color: "var(--text)", letterSpacing: 1 }}>#{ticketId}</div>
           </div>
 
-          <div style={{ marginBottom: 36 }}>
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
-              {STEPS.map((step, i) => (
-                <div key={step} style={{ display: "flex", alignItems: "center", flex: 1 }}>
-                  <div style={{
-                    width: 20, height: 20, borderRadius: "50%",
-                    background: i === 0 ? "var(--text)" : "transparent",
-                    border: `1px solid ${i === 0 ? "var(--text)" : "#525252"}`,
-                    flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                  }}>
-                    {i === 0 && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--bg)" }} />}
-                  </div>
-                  {i < STEPS.length - 1 && (
-                    <div style={{ flex: 1, height: 1, background: i === 0 ? "var(--text)" : "var(--border)" }} />
-                  )}
+          {/* Offline saved banner */}
+          {savedOffline && (
+            <div style={{
+              marginBottom: 28,
+              padding: "14px 16px",
+              background: "#92400e18",
+              border: "1px solid #d97706",
+              borderRadius: 6,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+            }}>
+              <WifiOff size={16} style={{ color: "#d97706", flexShrink: 0, marginTop: 1 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#d97706", marginBottom: 4 }}>Saved offline</div>
+                <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                  Your request has been saved on this device. It will be submitted automatically when your internet connection is restored.
                 </div>
-              ))}
+              </div>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              {STEPS.map((step, i) => (
-                <span key={step} style={{ fontSize: 11, color: i === 0 ? "var(--text)" : "#525252", fontWeight: i === 0 ? 600 : 400, flex: i < STEPS.length - 1 ? 1 : "auto" }}>
-                  {step}
-                </span>
-              ))}
+          )}
+
+          {!savedOffline && (
+            <div style={{ marginBottom: 36 }}>
+              <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+                {STEPS.map((step, i) => (
+                  <div key={step} style={{ display: "flex", alignItems: "center", flex: 1 }}>
+                    <div style={{
+                      width: 20, height: 20, borderRadius: "50%",
+                      background: i === 0 ? "var(--text)" : "transparent",
+                      border: `1px solid ${i === 0 ? "var(--text)" : "#525252"}`,
+                      flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {i === 0 && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--bg)" }} />}
+                    </div>
+                    {i < STEPS.length - 1 && (
+                      <div style={{ flex: 1, height: 1, background: i === 0 ? "var(--text)" : "var(--border)" }} />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                {STEPS.map((step, i) => (
+                  <span key={step} style={{ fontSize: 11, color: i === 0 ? "var(--text)" : "#525252", fontWeight: i === 0 ? 600 : 400, flex: i < STEPS.length - 1 ? 1 : "auto" }}>
+                    {step}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {locationString && (
             <div style={{ marginBottom: 20, padding: "12px 14px", background: "var(--surface)", borderRadius: 6, border: "1px solid var(--border)" }}>
@@ -248,11 +288,13 @@ export default function ReportPage() {
           )}
 
           <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.7 }}>
-            Your request has been logged. A coordinator has been notified.
+            {savedOffline
+              ? "Keep this page open or return to it — your request will be sent as soon as the connection is restored."
+              : "Your request has been logged. A coordinator has been notified."}
           </p>
 
           <button
-            onClick={() => setSubmitted(false)}
+            onClick={() => { setSubmitted(false); setSavedOffline(false); }}
             style={{ marginTop: 32, fontSize: 13, color: "var(--text-muted)", background: "none", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 20px", cursor: "pointer" }}
           >
             Submit another request

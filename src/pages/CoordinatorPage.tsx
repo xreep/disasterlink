@@ -1,11 +1,38 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
-import { Waves, Activity, Wind, Mountain, Sun, Factory, Flame, Thermometer, Moon, Lock, Shield, LogOut, Plus, Minus } from "lucide-react";
+import { Waves, Activity, Wind, Mountain, Sun, Factory, Flame, Thermometer, Moon, Lock, Shield, LogOut, Plus, Minus, WifiOff } from "lucide-react";
 import { useDisaster, DISASTER_TYPES, DISASTER_CONFIG, type DisasterType } from "../DisasterContext";
 import { useTheme } from "../ThemeContext";
 import { supabase, type HelpRequest, type Volunteer, type Resource } from "../lib/supabase";
 import type { User } from "@supabase/supabase-js";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
+
+// ─── Coordinator cache ────────────────────────────────────────────────────────
+
+const COORD_CACHE_KEY = "disasterlink_coordinator_cache";
+
+interface CoordCache {
+  requests: HelpRequest[];
+  volunteers: Volunteer[];
+  resources: Resource[];
+  cachedAt: number;
+}
+
+function saveCoordCache(data: Omit<CoordCache, "cachedAt">) {
+  localStorage.setItem(COORD_CACHE_KEY, JSON.stringify({ ...data, cachedAt: Date.now() }));
+}
+
+function loadCoordCache(): CoordCache | null {
+  try {
+    const raw = localStorage.getItem(COORD_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as CoordCache) : null;
+  } catch { return null; }
+}
+
+function formatCacheTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 
 // ─── Icon map ────────────────────────────────────────────────────────────────
 
@@ -342,6 +369,7 @@ function AddResourceModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
 export default function CoordinatorPage() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+  const { isOnline } = useOnlineStatus();
   const { disasterName, disasterType, disasterColor, setDisasterType } = useDisaster();
   const [activeTab, setActiveTab] = useState<EOCTab>("Overview");
   const [mapFilter, setMapFilter] = useState<"All" | "Critical" | "Active">("All");
@@ -353,6 +381,7 @@ export default function CoordinatorPage() {
   const [requests, setRequests] = useState<HelpRequest[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
+  const [coordCachedAt, setCoordCachedAt] = useState<number | null>(null);
 
   // ── Coordinator auth state ────────────────────────────────────────────────
   const [coordinator, setCoordinator] = useState<User | null>(null);
@@ -403,20 +432,44 @@ export default function CoordinatorPage() {
 
   // ── Supabase fetch + real-time subscriptions ─────────────────────────────────
   useEffect(() => {
+    if (!isOnline) {
+      const cache = loadCoordCache();
+      if (cache) {
+        setRequests(cache.requests);
+        setVolunteers(cache.volunteers);
+        setResources(cache.resources);
+        setFeed(cache.requests.map(r => requestToFeedEvent(r)));
+        setCoordCachedAt(cache.cachedAt);
+        setLastSync(formatCacheTime(cache.cachedAt));
+      }
+      return;
+    }
+    setCoordCachedAt(null);
     Promise.all([
       supabase.from("help_requests").select("*").order("created_at", { ascending: false }),
       supabase.from("volunteers").select("*"),
       supabase.from("resources").select("*"),
     ]).then(([reqRes, volRes, resRes]) => {
-      if (reqRes.data) {
-        const rows = reqRes.data as HelpRequest[];
-        setRequests(rows);
-        setFeed(rows.map(r => requestToFeedEvent(r)));
-      }
-      if (volRes.data) setVolunteers(volRes.data as Volunteer[]);
-      if (resRes.data) setResources(resRes.data as Resource[]);
+      const reqs = (reqRes.data ?? []) as HelpRequest[];
+      const vols = (volRes.data ?? []) as Volunteer[];
+      const ress = (resRes.data ?? []) as Resource[];
+      setRequests(reqs);
+      setFeed(reqs.map(r => requestToFeedEvent(r)));
+      setVolunteers(vols);
+      setResources(ress);
+      saveCoordCache({ requests: reqs, volunteers: vols, resources: ress });
       setLastSync("just now");
-    }).catch(() => {});
+    }).catch(() => {
+      const cache = loadCoordCache();
+      if (cache) {
+        setRequests(cache.requests);
+        setVolunteers(cache.volunteers);
+        setResources(cache.resources);
+        setFeed(cache.requests.map(r => requestToFeedEvent(r)));
+        setCoordCachedAt(cache.cachedAt);
+        setLastSync(formatCacheTime(cache.cachedAt));
+      }
+    });
 
     const channel = supabase
       .channel("eoc-realtime")
@@ -456,7 +509,7 @@ export default function CoordinatorPage() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [isOnline]);
 
   useEffect(() => {
     const interval = setInterval(() => setLastSync("just now"), 30000);
@@ -1164,6 +1217,23 @@ export default function CoordinatorPage() {
 
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {tabBar}
+
+          {/* ── Offline notice ── */}
+          {!isOnline && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "7px 16px",
+              background: "#92400e18",
+              borderBottom: "1px solid #d97706",
+              fontSize: 12, fontWeight: 500, color: "#d97706",
+              flexShrink: 0,
+            }}>
+              <WifiOff size={12} />
+              Offline mode — showing last known data
+              {coordCachedAt && <span style={{ opacity: 0.75 }}>· last updated {formatCacheTime(coordCachedAt)}</span>}
+            </div>
+          )}
+
           {TABS.map(tab => {
             if (tab === "Map") {
               return activeTab === "Map" ? (
