@@ -34,8 +34,15 @@ const NEED_COLOR: Record<string, string> = {
 const VOL_STATUS_COLOR: Record<string, string> = {
   Active: "#16a34a", Deployed: "#2563eb", Available: "#d97706", Completed: "#525252",
 };
+const RESOURCE_CATEGORIES = ["Food & Water", "Medical Supplies", "Rescue Equipment", "Shelter", "Vehicles"] as const;
+type ResourceCategory = typeof RESOURCE_CATEGORIES[number];
+
 const RESOURCE_CATEGORY_COLOR: Record<string, string> = {
-  Nutrition: "#2563eb", Medical: "#dc2626", Rescue: "#ea580c", Shelter: "#7c3aed",
+  "Food & Water": "#2563eb",
+  "Medical Supplies": "#dc2626",
+  "Rescue Equipment": "#ea580c",
+  "Shelter": "#7c3aed",
+  "Vehicles": "#0891b2",
 };
 
 // ─── Resolution trend (static analytics skeleton) ─────────────────────────────
@@ -246,6 +253,90 @@ function CoordinatorLoginModal({
   );
 }
 
+// ─── Add Resource Modal ───────────────────────────────────────────────────────
+
+function AddResourceModal({ onClose, onAdded }: { onClose: () => void; onAdded: (r: Resource) => void }) {
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState<string>(RESOURCE_CATEGORIES[0]);
+  const [location, setLocation] = useState("");
+  const [total, setTotal] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const qty = parseInt(total, 10);
+    if (!name.trim()) { setError("Resource name is required."); return; }
+    if (!location.trim()) { setError("Location is required."); return; }
+    if (!qty || qty < 1) { setError("Total quantity must be at least 1."); return; }
+    setLoading(true);
+    setError(null);
+    const { data, error: dbErr } = await supabase
+      .from("resources")
+      .insert({ name: name.trim(), category, location: location.trim(), total: qty, available: qty, deployed: 0 })
+      .select()
+      .single();
+    if (dbErr || !data) {
+      setError(dbErr?.message ?? "Failed to add resource.");
+      setLoading(false);
+      return;
+    }
+    onAdded(data as Resource);
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", height: 40, background: "var(--bg)",
+    border: "1px solid var(--border)", borderRadius: 5,
+    padding: "0 12px", fontSize: 13, color: "var(--text)",
+    outline: "none", boxSizing: "border-box",
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: 11, fontWeight: 600, color: "var(--text-muted)",
+    display: "block", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.05em",
+  };
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: 28, width: "100%", maxWidth: 400 }}>
+        <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>Add Resource</div>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 20 }}>Add a new resource to track and deploy in the field.</p>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={labelStyle}>Resource Name</label>
+            <input type="text" placeholder="e.g. Life Jackets" value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} autoFocus />
+          </div>
+          <div>
+            <label style={labelStyle}>Category</label>
+            <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...inputStyle, padding: "0 8px" }}>
+              {RESOURCE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Location / Storage Base</label>
+            <input type="text" placeholder="e.g. SDRF Camp, Patna" value={location} onChange={(e) => setLocation(e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Total Quantity</label>
+            <input type="number" placeholder="e.g. 100" min="1" value={total} onChange={(e) => setTotal(e.target.value)} style={inputStyle} />
+          </div>
+          {error && (
+            <div style={{ fontSize: 12, color: "#dc2626", background: "#dc262610", border: "1px solid #dc262630", borderRadius: 4, padding: "8px 10px" }}>{error}</div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button type="button" onClick={onClose} style={{ flex: 1, height: 38, background: "none", border: "1px solid var(--border)", borderRadius: 5, fontSize: 13, color: "var(--text-muted)", cursor: "pointer" }}>Cancel</button>
+            <button type="submit" disabled={loading} style={{ flex: 1, height: 38, background: "var(--text)", border: "none", borderRadius: 5, fontSize: 13, fontWeight: 600, color: "var(--bg)", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+              {loading ? "Adding…" : "Add Resource"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function CoordinatorPage() {
@@ -266,6 +357,7 @@ export default function CoordinatorPage() {
   // ── Coordinator auth state ────────────────────────────────────────────────
   const [coordinator, setCoordinator] = useState<User | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showAddResourceModal, setShowAddResourceModal] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -351,9 +443,15 @@ export default function CoordinatorPage() {
         const row = payload.new as Volunteer;
         setVolunteers((prev) => prev.map((v) => (v.id === row.id ? row : v)));
       })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "resources" }, (payload) => {
+        setResources((prev) => [...prev, payload.new as Resource]);
+      })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "resources" }, (payload) => {
         const row = payload.new as Resource;
         setResources((prev) => prev.map((r) => (r.id === row.id ? row : r)));
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "resources" }, (payload) => {
+        setResources((prev) => prev.filter((r) => r.id !== (payload.old as Resource).id));
       })
       .subscribe();
 
@@ -383,6 +481,19 @@ export default function CoordinatorPage() {
     for (const r of requests) { counts[r.location_state] = (counts[r.location_state] || 0) + 1; }
     return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 8);
   }, [requests]);
+
+  const groupedResources = useMemo(() => {
+    const groups = new Map<string, Resource[]>();
+    for (const cat of RESOURCE_CATEGORIES) groups.set(cat, []);
+    for (const r of resources) {
+      const key = RESOURCE_CATEGORIES.includes(r.category as ResourceCategory) ? r.category : "Other";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(r);
+    }
+    return Array.from(groups.entries())
+      .filter(([, items]) => items.length > 0)
+      .map(([cat, items]) => ({ cat, items }));
+  }, [resources]);
 
   const needsBreakdown = useMemo(() => {
     const total = requests.length || 1;
@@ -745,71 +856,148 @@ export default function CoordinatorPage() {
     </div>
   );
 
+  function resourceStatus(r: Resource): { label: string; color: string } {
+    if (r.available === 0) return { label: "Depleted", color: "#dc2626" };
+    if (r.total > 0 && r.available / r.total < 0.2) return { label: "Low", color: "#d97706" };
+    return { label: "Available", color: "#16a34a" };
+  }
+
   const resourcesContent = (
-    <div style={{ padding: 20, overflowY: "auto", height: "100%" }}>
-      {!coordinator && (
-        <div style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 5, marginBottom: 14, padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 5, background: "var(--surface)" }}>
-          <Lock size={11} /> Login as coordinator to update resource deployments
-        </div>
-      )}
-      {resources.length === 0 ? (
-        <div style={{ textAlign: "center", color: "#525252", fontSize: 13, padding: "48px 0" }}>No resources loaded.</div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
-          {resources.map(r => {
-            const pct = r.total > 0 ? Math.round((r.available / r.total) * 100) : 0;
-            const color = RESOURCE_CATEGORY_COLOR[r.category] || "#525252";
-            return (
-              <div key={r.id} style={{ padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{r.name}</div>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{r.location}</div>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/* Top bar */}
+      <div style={{ height: 52, borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 20px", gap: 12, flexShrink: 0 }}>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          {resources.length} resource{resources.length !== 1 ? "s" : ""} tracked
+        </span>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>·</span>
+        <span style={{ fontSize: 12, color: "#16a34a" }}>{resources.reduce((s, r) => s + r.available, 0)} total available</span>
+        <span style={{ fontSize: 12, color: "#d97706" }}>{resources.reduce((s, r) => s + r.deployed, 0)} deployed</span>
+        {!coordinator && (
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4 }}>
+            <Lock size={10} /> Login to manage
+          </span>
+        )}
+        {coordinator && (
+          <button
+            onClick={() => setShowAddResourceModal(true)}
+            style={{ marginLeft: "auto", fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 5, background: "var(--text)", border: "none", color: "var(--bg)", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+          >
+            <Plus size={13} /> Add Resource
+          </button>
+        )}
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+        {resources.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "64px 24px" }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>No resources added yet</div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", maxWidth: 320, margin: "0 auto", lineHeight: 1.6 }}>
+              Add resources to track their availability and deployment in the field.
+              {coordinator && (
+                <span> Click <strong>Add Resource</strong> above to get started.</span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+            {groupedResources.map(({ cat, items }) => {
+              const catColor = RESOURCE_CATEGORY_COLOR[cat] || "#525252";
+              return (
+                <div key={cat}>
+                  {/* Category header */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                    <div style={{ width: 3, height: 16, borderRadius: 2, background: catColor, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.08em" }}>{cat}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>({items.length})</span>
+                    <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
                   </div>
-                  <Badge label={r.category} color={color} />
+
+                  {/* Resource cards grid */}
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+                    {items.map(r => {
+                      const pct = r.total > 0 ? Math.round((r.available / r.total) * 100) : 0;
+                      const status = resourceStatus(r);
+                      const barColor = pct === 0 ? "#dc2626" : pct < 20 ? "#d97706" : catColor;
+                      return (
+                        <div key={r.id} style={{
+                          padding: "14px 16px",
+                          border: "1px solid var(--border)",
+                          borderLeft: `3px solid ${catColor}`,
+                          borderRadius: 6,
+                          background: "var(--surface)",
+                        }}>
+                          {/* Name + status */}
+                          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", lineHeight: 1.3 }}>{r.name}</div>
+                              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>{r.location}</div>
+                            </div>
+                            <span style={{
+                              fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 3, flexShrink: 0,
+                              border: `1px solid ${status.color}`, color: status.color, background: `${status.color}18`,
+                            }}>
+                              {status.label}
+                            </span>
+                          </div>
+
+                          {/* Quantities row */}
+                          <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginBottom: 10 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", fontFamily: "monospace", lineHeight: 1 }}>{r.available}</div>
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3 }}>Available</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 18, fontWeight: 600, color: "#d97706", fontFamily: "monospace", lineHeight: 1 }}>{r.deployed}</div>
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3 }}>Deployed</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 16, fontWeight: 500, color: "var(--text-muted)", fontFamily: "monospace", lineHeight: 1 }}>{r.total}</div>
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3 }}>Total</div>
+                            </div>
+                          </div>
+
+                          {/* Progress bar */}
+                          <div style={{ height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden", marginBottom: 4 }}>
+                            <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 2, transition: "width 0.3s ease" }} />
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{pct}% available</span>
+
+                            {/* Deploy controls (coordinator only) */}
+                            {coordinator && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                <button
+                                  onClick={() => handleUpdateResource(r.id, -1)}
+                                  disabled={r.deployed <= 0}
+                                  title="Mark one returned"
+                                  style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: r.deployed <= 0 ? "not-allowed" : "pointer", color: "var(--text-muted)", opacity: r.deployed <= 0 ? 0.35 : 1 }}
+                                >
+                                  <Minus size={11} />
+                                </button>
+                                <span style={{ fontSize: 10, color: "var(--text-muted)", padding: "0 2px" }}>Deploy</span>
+                                <button
+                                  onClick={() => handleUpdateResource(r.id, 1)}
+                                  disabled={r.available <= 0}
+                                  title="Deploy one unit"
+                                  style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: r.available <= 0 ? "not-allowed" : "pointer", color: "var(--text-muted)", opacity: r.available <= 0 ? 0.35 : 1 }}
+                                >
+                                  <Plus size={11} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 16, marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", fontFamily: "monospace", lineHeight: 1 }}>{r.available}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Available</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-muted)", fontFamily: "monospace", lineHeight: 1 }}>{r.deployed}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Deployed</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-muted)", fontFamily: "monospace", lineHeight: 1 }}>{r.total}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Total</div>
-                  </div>
-                  {coordinator && (
-                    <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-                      <button
-                        onClick={() => handleUpdateResource(r.id, -1)}
-                        disabled={r.deployed <= 0}
-                        style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: r.deployed <= 0 ? "not-allowed" : "pointer", color: "var(--text-muted)", opacity: r.deployed <= 0 ? 0.4 : 1 }}
-                      >
-                        <Minus size={12} />
-                      </button>
-                      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>Deploy</span>
-                      <button
-                        onClick={() => handleUpdateResource(r.id, 1)}
-                        disabled={r.available <= 0}
-                        style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--border)", borderRadius: 4, cursor: r.available <= 0 ? "not-allowed" : "pointer", color: "var(--text-muted)", opacity: r.available <= 0 ? 0.4 : 1 }}
-                      >
-                        <Plus size={12} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div style={{ height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2 }} />
-                </div>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 4 }}>{pct}% available</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -998,6 +1186,20 @@ export default function CoordinatorPage() {
         <CoordinatorLoginModal
           onClose={() => setShowLoginModal(false)}
           onLogin={(user) => { setCoordinator(user); setShowLoginModal(false); }}
+        />
+      )}
+
+      {/* ── Add Resource Modal ── */}
+      {showAddResourceModal && (
+        <AddResourceModal
+          onClose={() => setShowAddResourceModal(false)}
+          onAdded={(r) => {
+            setResources((prev) => {
+              if (prev.find(x => x.id === r.id)) return prev;
+              return [...prev, r];
+            });
+            setShowAddResourceModal(false);
+          }}
         />
       )}
     </div>
