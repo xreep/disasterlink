@@ -57,6 +57,7 @@ const STATUS_COLOR: Record<string, string> = {
 const NEED_COLOR: Record<string, string> = {
   "Food & Water": "#2563eb", "Medical Help": "#dc2626", "Shelter": "#7c3aed",
   "Rescue": "#ea580c", "Evacuation": "#d97706", "Other": "#525252",
+  "SOS - Emergency": "#ff0000",
 };
 const VOL_STATUS_COLOR: Record<string, string> = {
   Active: "#16a34a", Deployed: "#2563eb", Available: "#d97706", Completed: "#525252",
@@ -100,10 +101,21 @@ function displayStatus(status: string): string {
   return status === "Pending" ? "Unassigned" : status;
 }
 
+function isSOSRequest(req: HelpRequest): boolean {
+  return req.need_type === "SOS - Emergency";
+}
+
 function markerColor(req: HelpRequest): string {
+  if (isSOSRequest(req) && req.status !== "Resolved") return "#ff0000";
   if (req.status === "Resolved") return "#16a34a";
   if (req.status === "Assigned" || req.status === "In Progress") return "#d97706";
   return "#dc2626";
+}
+
+function markerRadius(req: HelpRequest): number {
+  if (isSOSRequest(req) && req.status !== "Resolved") return 14;
+  if (req.severity === "Critical") return 10;
+  return 7;
 }
 
 function feedColor(status: string): string {
@@ -736,8 +748,8 @@ export default function CoordinatorPage() {
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution='&copy; <a href="https://carto.com/">CARTO</a>' />
           {filteredMapRequests.map(r => (
             <CircleMarker key={r.id} center={[r.latitude!, r.longitude!]}
-              radius={r.severity === "Critical" ? 10 : 7}
-              pathOptions={{ color: markerColor(r), fillColor: markerColor(r), fillOpacity: 0.85, weight: 1.5 }}
+              radius={markerRadius(r)}
+              pathOptions={{ color: markerColor(r), fillColor: markerColor(r), fillOpacity: isSOSRequest(r) ? 1 : 0.85, weight: isSOSRequest(r) ? 3 : 1.5 }}
             >
               <Popup>
                 <div style={{ fontFamily: "'Inter', sans-serif", minWidth: 190 }}>
@@ -813,8 +825,11 @@ export default function CoordinatorPage() {
             No requests found.
           </div>
         ) : filteredReqList.map(r => (
-          <div key={r.id} style={{ display: "grid", gridTemplateColumns: reqCols, gap: 8, padding: "12px 16px", borderBottom: "1px solid var(--border)", alignItems: "center" }}>
-            <span style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text)", fontWeight: 600 }}>{r.id}</span>
+          <div key={r.id} style={{ display: "grid", gridTemplateColumns: reqCols, gap: 8, padding: "12px 16px", borderBottom: `1px solid ${isSOSRequest(r) && r.status !== "Resolved" ? "#ff000030" : "var(--border)"}`, alignItems: "center", background: isSOSRequest(r) && r.status !== "Resolved" ? "#ff000008" : undefined }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text)", fontWeight: 600 }}>{r.id}</span>
+              {isSOSRequest(r) && <Badge label="SOS" color="#ff0000" />}
+            </div>
             {isMobile ? (
               <div>
                 <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{r.need_type}</div>

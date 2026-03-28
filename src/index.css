@@ -75,6 +75,17 @@ select:focus {
   outline-color: #dc2626;
 }
 
+/* ── SOS pulse animation ────────────────────────────────────────── */
+
+@keyframes sos-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
+  50% { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+}
+
+.sos-pulse {
+  animation: sos-pulse 1.6s ease-in-out infinite;
+}
+
 /* ── Feed highlight ─────────────────────────────────────────────── */
 
 .feed-item {

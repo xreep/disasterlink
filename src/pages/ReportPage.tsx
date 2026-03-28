@@ -7,6 +7,12 @@ import { supabase } from "../lib/supabase";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { enqueueHelpRequest } from "../lib/offlineQueue";
 
+type SOSState = "idle" | "locating" | "sent" | "offline" | "denied" | "error";
+
+function generateSOSId() {
+  return `SOS-${Math.floor(10000 + Math.random() * 90000)}`;
+}
+
 const NEED_TYPES = ["Food & Water", "Medical Help", "Shelter", "Rescue", "Evacuation", "Other"];
 const SEVERITY_OPTIONS = [
   { label: "Critical", color: "#dc2626" },
@@ -38,6 +44,8 @@ export default function ReportPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [ticketId] = useState(generateTicketId);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [sosState, setSOSState] = useState<SOSState>("idle");
+  const [sosTicketId, setSOSTicketId] = useState<string | null>(null);
 
   useEffect(() => {
     function onResize() { setIsMobile(window.innerWidth < 768); }
@@ -63,6 +71,72 @@ export default function ReportPage() {
         setLocating(false);
       },
       () => setLocating(false)
+    );
+  }
+
+  async function handleSOS() {
+    if (sosState === "locating") return;
+    const id = generateSOSId();
+    setSOSTicketId(id);
+
+    if (!isOnline) {
+      const payload = {
+        id,
+        victim_name: "Unknown",
+        victim_phone: null,
+        need_type: "SOS - Emergency",
+        description: "SOS button — location unknown (offline)",
+        location_state: "Locating...",
+        location_district: "Locating...",
+        latitude: null,
+        longitude: null,
+        severity: "Critical",
+        people: 1,
+        status: "Pending",
+        source: "sos_button",
+      };
+      enqueueHelpRequest(payload as Record<string, unknown>);
+      setSOSState("offline");
+      return;
+    }
+
+    setSOSState("locating");
+
+    if (!navigator.geolocation) {
+      setSOSState("denied");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = +pos.coords.latitude.toFixed(5);
+        const lng = +pos.coords.longitude.toFixed(5);
+        const payload = {
+          id,
+          victim_name: "Unknown",
+          victim_phone: null,
+          need_type: "SOS - Emergency",
+          description: `SOS button tap — GPS: ${lat}° N, ${lng}° E`,
+          location_state: "Locating...",
+          location_district: "Locating...",
+          latitude: lat,
+          longitude: lng,
+          severity: "Critical",
+          people: 1,
+          status: "Pending",
+          source: "sos_button",
+        };
+        const { error } = await supabase.from("help_requests").insert(payload);
+        if (error) {
+          setSOSState("error");
+        } else {
+          setSOSState("sent");
+        }
+      },
+      () => {
+        setSOSState("denied");
+      },
+      { timeout: 10000, enableHighAccuracy: true }
     );
   }
 
@@ -306,6 +380,119 @@ export default function ReportPage() {
 
   const canSubmit = !!(needType && severity && selectedState && selectedDistrict);
 
+  const sosSection = (
+    <div style={{ maxWidth: isMobile ? "100%" : 480, margin: "0 auto", padding: isMobile ? "24px 16px 0" : "24px 20px 0" }}>
+      {/* SOS button */}
+      {(sosState === "idle" || sosState === "locating") && (
+        <div>
+          <button
+            type="button"
+            onClick={handleSOS}
+            disabled={sosState === "locating"}
+            className={sosState === "idle" ? "sos-pulse" : undefined}
+            style={{
+              width: "100%",
+              background: sosState === "locating" ? "#991b1b" : "#dc2626",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: 8,
+              padding: "18px 20px",
+              fontSize: isMobile ? 17 : 19,
+              fontWeight: 700,
+              cursor: sosState === "locating" ? "not-allowed" : "pointer",
+              letterSpacing: "0.01em",
+              transition: "background 0.2s",
+            }}
+          >
+            {sosState === "locating" ? "📡 Getting your location..." : "🆘 SOS — Send My Location Now"}
+          </button>
+          <p style={{ marginTop: 8, textAlign: "center", fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+            One tap sends your GPS location immediately — no form needed
+          </p>
+        </div>
+      )}
+
+      {/* SOS sent */}
+      {sosState === "sent" && (
+        <div style={{ background: "#14532d18", border: "1px solid #16a34a", borderRadius: 8, padding: "18px 20px" }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#16a34a", marginBottom: 6 }}>
+            🆘 SOS Sent! Help is on the way.
+          </div>
+          <div style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 10 }}>
+            Stay where you are. Your GPS coordinates have been transmitted to emergency coordinators.
+          </div>
+          {sosTicketId && (
+            <div style={{ fontSize: 12, fontFamily: "monospace", color: "var(--text-muted)" }}>
+              Reference ID: {sosTicketId}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setSOSState("idle")}
+            style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)", background: "none", border: "1px solid var(--border)", borderRadius: 5, padding: "6px 14px", cursor: "pointer" }}
+          >
+            Send another SOS
+          </button>
+        </div>
+      )}
+
+      {/* SOS offline */}
+      {sosState === "offline" && (
+        <div style={{ background: "#92400e18", border: "1px solid #d97706", borderRadius: 8, padding: "18px 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <WifiOff size={16} style={{ color: "#d97706", flexShrink: 0 }} />
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#d97706" }}>SOS saved — will be sent when connection restores</div>
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+            Your SOS request is queued on this device and will be transmitted automatically when you're back online.
+          </div>
+          {sosTicketId && (
+            <div style={{ marginTop: 8, fontSize: 12, fontFamily: "monospace", color: "var(--text-muted)" }}>
+              Reference ID: {sosTicketId}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setSOSState("idle")}
+            style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)", background: "none", border: "1px solid var(--border)", borderRadius: 5, padding: "6px 14px", cursor: "pointer" }}
+          >
+            Send another SOS
+          </button>
+        </div>
+      )}
+
+      {/* GPS denied */}
+      {(sosState === "denied" || sosState === "error") && (
+        <div style={{ background: "#1c1917", border: "1px solid #525252", borderRadius: 8, padding: "16px 20px" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
+            {sosState === "denied"
+              ? "Location access denied."
+              : "Could not send SOS — please try again."}
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+            {sosState === "denied"
+              ? "Please fill the form below with your location so coordinators can find you."
+              : "Use the form below to submit your request manually."}
+          </div>
+          <button
+            type="button"
+            onClick={() => setSOSState("idle")}
+            style={{ marginTop: 10, fontSize: 12, color: "var(--text-muted)", background: "none", border: "1px solid var(--border)", borderRadius: 5, padding: "6px 14px", cursor: "pointer" }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* Divider */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "20px 0 0" }}>
+        <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+        <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>— or fill the form for more details —</span>
+        <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+      </div>
+    </div>
+  );
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: "'Inter', sans-serif", color: "var(--text)" }}>
       <div style={topBar}>
@@ -318,6 +505,8 @@ export default function ReportPage() {
           </button>
         </div>
       </div>
+
+      {sosSection}
 
       <form onSubmit={handleSubmit} style={bodyStyle}>
         {/* Identity */}
