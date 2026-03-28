@@ -6,6 +6,12 @@ import { useTheme } from "../ThemeContext";
 import { supabase } from "../lib/supabase";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { enqueueHelpRequest } from "../lib/offlineQueue";
+import {
+  getProfile,
+  isSetupDone,
+  type EmergencyProfile,
+} from "../lib/emergencyProfile";
+import { EmergencyProfileSetup } from "../components/EmergencyProfileSetup";
 
 type SOSState = "idle" | "locating" | "sent" | "offline" | "denied" | "error";
 
@@ -46,6 +52,9 @@ export default function ReportPage() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [sosState, setSOSState] = useState<SOSState>("idle");
   const [sosTicketId, setSOSTicketId] = useState<string | null>(null);
+  const [showSetup, setShowSetup] = useState(() => !isSetupDone());
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [profile, setProfile] = useState<EmergencyProfile | null>(() => getProfile());
 
   useEffect(() => {
     function onResize() { setIsMobile(window.innerWidth < 768); }
@@ -74,16 +83,30 @@ export default function ReportPage() {
     );
   }
 
+  function handleSetupDone(savedProfile: EmergencyProfile | null) {
+    setShowSetup(false);
+    if (savedProfile) setProfile(savedProfile);
+  }
+
+  function handleEditDone(savedProfile: EmergencyProfile | null) {
+    setShowEditProfile(false);
+    if (savedProfile) setProfile(savedProfile);
+  }
+
   async function handleSOS() {
     if (sosState === "locating") return;
     const id = generateSOSId();
     setSOSTicketId(id);
+    const currentProfile = getProfile();
+
+    const victimName = currentProfile?.name?.trim() || "Unknown";
+    const victimPhone = currentProfile?.phone?.trim() || null;
 
     if (!isOnline) {
       const payload = {
         id,
-        victim_name: "Unknown",
-        victim_phone: null,
+        victim_name: victimName,
+        victim_phone: victimPhone,
         need_type: "SOS - Emergency",
         description: "SOS button — location unknown (offline)",
         location_state: "Locating...",
@@ -113,8 +136,8 @@ export default function ReportPage() {
         const lng = +pos.coords.longitude.toFixed(5);
         const payload = {
           id,
-          victim_name: "Unknown",
-          victim_phone: null,
+          victim_name: victimName,
+          victim_phone: victimPhone,
           need_type: "SOS - Emergency",
           description: `SOS button tap — GPS: ${lat}° N, ${lng}° E`,
           location_state: "Locating...",
@@ -380,6 +403,8 @@ export default function ReportPage() {
 
   const canSubmit = !!(needType && severity && selectedState && selectedDistrict);
 
+  const hasFullProfile = !!(profile?.name && profile.name !== "Unknown" && profile?.phone);
+
   const sosSection = (
     <div style={{ maxWidth: isMobile ? "100%" : 480, margin: "0 auto", padding: isMobile ? "24px 16px 0" : "24px 20px 0" }}>
       {/* SOS button */}
@@ -422,8 +447,25 @@ export default function ReportPage() {
             Stay where you are. Your GPS coordinates have been transmitted to emergency coordinators.
           </div>
           {sosTicketId && (
-            <div style={{ fontSize: 12, fontFamily: "monospace", color: "var(--text-muted)" }}>
+            <div style={{ fontSize: 12, fontFamily: "monospace", color: "var(--text-muted)", marginBottom: 10 }}>
               Reference ID: {sosTicketId}
+            </div>
+          )}
+          {!hasFullProfile && (
+            <div style={{ marginTop: 12, padding: "12px 14px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
+                While you wait, add your details
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
+                Help responders reach you faster by adding your name and phone number.
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEditProfile(true)}
+                style={{ fontSize: 12, fontWeight: 600, color: "var(--bg)", background: "var(--text)", border: "none", borderRadius: 5, padding: "7px 14px", cursor: "pointer" }}
+              >
+                Add my details →
+              </button>
             </div>
           )}
           <button
@@ -463,7 +505,7 @@ export default function ReportPage() {
 
       {/* GPS denied */}
       {(sosState === "denied" || sosState === "error") && (
-        <div style={{ background: "#1c1917", border: "1px solid #525252", borderRadius: 8, padding: "16px 20px" }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "16px 20px" }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
             {sosState === "denied"
               ? "Location access denied."
@@ -484,8 +526,21 @@ export default function ReportPage() {
         </div>
       )}
 
+      {/* Edit profile link — always shown */}
+      <div style={{ marginTop: 10, textAlign: "center" }}>
+        <button
+          type="button"
+          onClick={() => setShowEditProfile(true)}
+          style={{ fontSize: 12, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2 }}
+        >
+          {profile?.name && profile.name !== "Unknown"
+            ? `Emergency profile: ${profile.name} — Edit`
+            : "✚ Set up emergency profile"}
+        </button>
+      </div>
+
       {/* Divider */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "20px 0 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "16px 0 0" }}>
         <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
         <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>— or fill the form for more details —</span>
         <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
@@ -495,6 +550,13 @@ export default function ReportPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: "'Inter', sans-serif", color: "var(--text)" }}>
+      {showSetup && (
+        <EmergencyProfileSetup onDone={handleSetupDone} />
+      )}
+      {showEditProfile && (
+        <EmergencyProfileSetup isEdit onDone={handleEditDone} />
+      )}
+
       <div style={topBar}>
         <span style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px" }}>DisasterLink</span>
         <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-muted)" }}>Emergency Request</span>
