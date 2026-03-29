@@ -1,28 +1,18 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useDisaster } from "../DisasterContext";
 import { useTheme } from "../ThemeContext";
 import { Sun, Moon } from "lucide-react";
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const { disasterName } = useDisaster();
   const { theme, toggleTheme } = useTheme();
+  const [hovered, setHovered] = useState<string | null>(null);
 
-  const btnBase: React.CSSProperties = {
-    width: "100%",
-    height: 52,
-    background: "var(--surface)",
-    color: "var(--text)",
-    fontSize: 14,
-    fontWeight: 500,
-    borderRadius: 6,
-    border: "1px solid var(--border)",
-    cursor: "pointer",
-    textAlign: "left",
-    padding: "0 16px",
-    display: "flex",
-    alignItems: "center",
-  };
+  const buttons = [
+    { label: "I Need Help — Report Emergency", path: "/report", bg: "#ef4444", hover: "#dc2626" },
+    { label: "Volunteer Operations", path: "/volunteer/login", bg: "#b91c1c", hover: "#991b1b" },
+    { label: "Emergency Operations Center", path: "/coordinator", bg: "#7f1d1d", hover: "#6b1212" },
+  ];
 
   return (
     <div style={{
@@ -42,7 +32,8 @@ export default function LandingPage() {
       >
         {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
       </button>
-      <div style={{ marginBottom: 28, textAlign: "center" }}>
+
+      <div style={{ marginBottom: 36, textAlign: "center" }}>
         <div style={{
           fontFamily: "monospace",
           fontSize: 28,
@@ -53,37 +44,39 @@ export default function LandingPage() {
         }}>
           DisasterLink
         </div>
-        <div style={{ color: "var(--text-muted)", fontSize: 14, maxWidth: 360 }}>
-          India's Real-Time Disaster Coordination Platform. <br />
+        <div style={{ color: "var(--text-muted)", fontSize: 14, maxWidth: 360, lineHeight: 1.6 }}>
+          India's Real-Time Disaster Coordination Platform.<br />
           Choose your role to continue.
         </div>
       </div>
 
-      <div style={{ fontSize: 12, color: "#525252", marginBottom: 20, textAlign: "center" }}>
-        {disasterName} · Active Incident
-      </div>
-
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 360 }}>
-        <button
-          onClick={() => navigate("/report")}
-          style={{ ...btnBase, borderLeft: "3px solid #dc2626" }}
-        >
-          I Need Help — Report Emergency
-        </button>
-
-        <button
-          onClick={() => navigate("/volunteer/login")}
-          style={btnBase}
-        >
-          Volunteer Operations
-        </button>
-
-        <button
-          onClick={() => navigate("/coordinator")}
-          style={{ ...btnBase, color: "var(--text-muted)" }}
-        >
-          Emergency Operations Center
-        </button>
+        {buttons.map(btn => (
+          <button
+            key={btn.path}
+            onClick={() => navigate(btn.path)}
+            onMouseEnter={() => setHovered(btn.path)}
+            onMouseLeave={() => setHovered(null)}
+            style={{
+              width: "100%",
+              height: 52,
+              background: hovered === btn.path ? btn.hover : btn.bg,
+              color: "#ffffff",
+              fontSize: 14,
+              fontWeight: 600,
+              borderRadius: 6,
+              border: "none",
+              cursor: "pointer",
+              textAlign: "left",
+              padding: "0 18px",
+              display: "flex",
+              alignItems: "center",
+              transition: "background 0.15s",
+            }}
+          >
+            {btn.label}
+          </button>
+        ))}
       </div>
     </div>
   );

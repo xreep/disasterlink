@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
-import { Waves, Activity, Wind, Mountain, Sun, Factory, Flame, Thermometer, Moon, Lock, Shield, LogOut, Plus, Minus, WifiOff } from "lucide-react";
-import { useDisaster, DISASTER_TYPES, DISASTER_CONFIG, type DisasterType } from "../DisasterContext";
+import { Sun, Moon, Lock, Shield, LogOut, Plus, Minus, WifiOff } from "lucide-react";
+import { useDisaster } from "../DisasterContext";
 import { useTheme } from "../ThemeContext";
 import { supabase, type HelpRequest, type Volunteer, type Resource } from "../lib/supabase";
 import type { User } from "@supabase/supabase-js";
@@ -33,13 +33,6 @@ function loadCoordCache(): CoordCache | null {
 function formatCacheTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
-
-// ─── Icon map ────────────────────────────────────────────────────────────────
-
-const DISASTER_ICONS: Record<DisasterType, React.ComponentType<{ size?: number; color?: string }>> = {
-  "Flood": Waves, "Earthquake": Activity, "Cyclone": Wind, "Landslide": Mountain,
-  "Drought": Sun, "Industrial Accident": Factory, "Fire": Flame, "Heatwave": Thermometer,
-};
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -72,15 +65,6 @@ const RESOURCE_CATEGORY_COLOR: Record<string, string> = {
   "Shelter": "#7c3aed",
   "Vehicles": "#0891b2",
 };
-
-// ─── Resolution trend (static analytics skeleton) ─────────────────────────────
-
-const RESOLUTION_TREND = [
-  { day: "Mon", pct: 71 }, { day: "Tue", pct: 76 },
-  { day: "Wed", pct: 68 }, { day: "Thu", pct: 80 },
-  { day: "Fri", pct: 78 }, { day: "Sat", pct: 83 },
-  { day: "Sun", pct: 78 },
-];
 
 // ─── Feed event type ──────────────────────────────────────────────────────────
 
@@ -395,7 +379,7 @@ export default function CoordinatorPage() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const { isOnline } = useOnlineStatus();
-  const { disasterName, disasterType, disasterColor, setDisasterType } = useDisaster();
+  const { disasterName, disasterColor } = useDisaster();
   const [activeTab, setActiveTab] = useState<EOCTab>("Overview");
   const [mapFilter, setMapFilter] = useState<"All" | "Critical" | "Active">("All");
   const [reqFilter, setReqFilter] = useState<"All" | "Unassigned" | "Assigned" | "Resolved">("All");
@@ -605,55 +589,10 @@ export default function CoordinatorPage() {
     }),
   [requests, reqFilter]);
 
-  // ── Disaster type selector ────────────────────────────────────────────────
-
-  const disasterSelector = (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-        <span style={{ ...sectionLabel, marginBottom: 0 }}>Active Disaster Type</span>
-        {!coordinator && <Lock size={10} color="var(--text-muted)" />}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        {DISASTER_TYPES.map((type: DisasterType) => {
-          const Icon = DISASTER_ICONS[type];
-          const meta = DISASTER_CONFIG[type];
-          const isActive = disasterType === type;
-          return (
-            <button
-              key={type}
-              onClick={() => coordinator ? setDisasterType(type) : setShowLoginModal(true)}
-              style={{
-                display: "flex", alignItems: "center", gap: 9,
-                padding: "7px 9px", borderRadius: 5,
-                cursor: coordinator ? "pointer" : "pointer",
-                border: `1px solid ${isActive ? meta.color : "transparent"}`,
-                background: isActive ? `${meta.color}22` : "transparent",
-                textAlign: "left", width: "100%",
-                opacity: coordinator ? 1 : 0.6,
-              }}
-            >
-              <Icon size={13} color={isActive ? meta.color : "#525252"} />
-              <div>
-                <div style={{ fontSize: 12, fontWeight: isActive ? 600 : 400, color: isActive ? meta.color : "var(--text-muted)", lineHeight: 1.2 }}>{type}</div>
-                <div style={{ fontSize: 10, color: "#525252", lineHeight: 1.3, marginTop: 1 }}>{meta.description}</div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      {!coordinator && (
-        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 8, display: "flex", alignItems: "center", gap: 4 }}>
-          <Lock size={9} /> Coordinator login required to change
-        </div>
-      )}
-    </div>
-  );
-
   // ── System status ─────────────────────────────────────────────────────────
 
   const systemStatus = (
     <>
-      <div style={divider} />
       <div style={sectionLabel}>System Status</div>
       {["Data Sync", "Alert System", "Comms Bridge"].map(name => (
         <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -668,65 +607,61 @@ export default function CoordinatorPage() {
   // ── Tab content ───────────────────────────────────────────────────────────
 
   const overviewContent = (
-    <div style={{ padding: 20, overflowY: "auto", height: "100%" }}>
-      {isMobile && <div style={{ marginBottom: 20 }}>{disasterSelector}</div>}
-
+    <div style={{ padding: 20, overflowY: "auto", height: "100%", display: "flex", flexDirection: "column", gap: 20 }}>
       {/* KPI cards */}
-      <div style={sectionLabel}>Live KPIs</div>
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
-        {[
-          { label: "Active Requests", value: activeRequests.length, color: "#dc2626" },
-          { label: "Volunteers Active", value: activeVolunteers.length, color: "#2563eb" },
-          { label: "Resources Available", value: totalResourcesAvailable, color: "#16a34a" },
-          { label: "Resolved", value: resolvedRequests.length, color: "#525252" },
-        ].map(k => (
-          <div key={k.label} style={{ padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)" }}>
-            <div style={{ fontSize: 28, fontWeight: 700, color: k.color, lineHeight: 1, fontFamily: "monospace" }}>{k.value}</div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>{k.label}</div>
-          </div>
-        ))}
+      <div>
+        <div style={sectionLabel}>Live KPIs</div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 12 }}>
+          {[
+            { label: "Active Requests", value: activeRequests.length, color: "#dc2626" },
+            { label: "Volunteers Active", value: activeVolunteers.length, color: "#2563eb" },
+            { label: "Resources Available", value: totalResourcesAvailable, color: "#16a34a" },
+            { label: "Resolved", value: resolvedRequests.length, color: "#525252" },
+          ].map(k => (
+            <div key={k.label} style={{ padding: "16px 18px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)" }}>
+              <div style={{ fontSize: 32, fontWeight: 700, color: k.color, lineHeight: 1, fontFamily: "monospace" }}>{k.value}</div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>{k.label}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <div style={{ display: isMobile ? "block" : "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-        {/* Needs breakdown */}
-        <div>
-          <div style={sectionLabel}>Needs Breakdown</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: isMobile ? 24 : 0 }}>
-            {needsBreakdown.map(d => (
-              <div key={d.name}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{d.name}</span>
-                  <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "monospace" }}>{d.pct}%</span>
-                </div>
-                <div style={{ height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${d.pct}%`, background: NEED_COLOR[d.name] || "var(--text)", borderRadius: 2 }} />
-                </div>
+      {/* Needs breakdown — compact full-width bar chart */}
+      <div>
+        <div style={sectionLabel}>Needs Breakdown</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {needsBreakdown.map(d => (
+            <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 12, color: "var(--text-muted)", width: 120, flexShrink: 0 }}>{d.name}</span>
+              <div style={{ flex: 1, height: 5, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${d.pct}%`, background: NEED_COLOR[d.name] || "var(--text)", borderRadius: 3 }} />
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Live feed */}
-        <div>
-          <div style={sectionLabel}>Live Feed</div>
-          {feed.length === 0 ? (
-            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Waiting for events…</div>
-          ) : (
-            <div style={{ maxHeight: 260, overflowY: "auto" }}>
-              {feed.slice(0, 10).map((event, i) => {
-                const time = formatFeedTime(event.timestamp);
-                const msg = `${event.eventType} — ${event.victimName} needs ${event.needType} in ${event.locationDistrict}, ${event.locationState}`;
-                return (
-                  <div key={event.key} className={i === 0 && highlightFirst ? "feed-item feed-new" : "feed-item"}
-                    style={{ display: "flex", gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
-                    <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-muted)", flexShrink: 0, paddingTop: 1 }}>{time}</span>
-                    <span style={{ fontSize: 12, color: feedColor(event.status), lineHeight: 1.5 }}>{msg}</span>
-                  </div>
-                );
-              })}
+              <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace", width: 36, textAlign: "right", flexShrink: 0 }}>{d.pct}%</span>
             </div>
-          )}
+          ))}
         </div>
+      </div>
+
+      {/* Live feed — takes remaining space */}
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <div style={sectionLabel}>Live Feed</div>
+        {feed.length === 0 ? (
+          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Waiting for events…</div>
+        ) : (
+          <div style={{ maxHeight: 340, overflowY: "auto" }}>
+            {feed.slice(0, 15).map((event, i) => {
+              const time = formatFeedTime(event.timestamp);
+              const msg = `${event.eventType} — ${event.victimName} needs ${event.needType} in ${event.locationDistrict}, ${event.locationState}`;
+              return (
+                <div key={event.key} className={i === 0 && highlightFirst ? "feed-item feed-new" : "feed-item"}
+                  style={{ display: "flex", gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
+                  <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--text-muted)", flexShrink: 0, paddingTop: 1 }}>{time}</span>
+                  <span style={{ fontSize: 12, color: feedColor(event.status), lineHeight: 1.5 }}>{msg}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1103,14 +1038,15 @@ export default function CoordinatorPage() {
   );
 
   const analyticsContent = (
-    <div style={{ padding: 20, overflowY: "auto", height: "100%" }}>
-      <div style={{ display: isMobile ? "block" : "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-        <div style={{ marginBottom: isMobile ? 28 : 0 }}>
+    <div style={{ padding: 20, overflowY: "auto", height: "100%", display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Row 1: Need Type + State — equal height cards */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20 }}>
+        <div style={{ padding: "16px 18px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)" }}>
           <div style={sectionLabel}>Requests by Need Type</div>
           {analyticsNeed.length === 0 ? (
             <div style={{ fontSize: 12, color: "var(--text-muted)" }}>No data yet.</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {analyticsNeed.map(d => {
                 const max = Math.max(...analyticsNeed.map(x => x.count), 1);
                 return (
@@ -1129,12 +1065,12 @@ export default function CoordinatorPage() {
           )}
         </div>
 
-        <div style={{ marginBottom: isMobile ? 28 : 0 }}>
+        <div style={{ padding: "16px 18px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)" }}>
           <div style={sectionLabel}>Requests by State</div>
           {analyticsState.length === 0 ? (
             <div style={{ fontSize: 12, color: "var(--text-muted)" }}>No data yet.</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {analyticsState.map(d => {
                 const max = Math.max(...analyticsState.map(x => x.count), 1);
                 return (
@@ -1152,31 +1088,45 @@ export default function CoordinatorPage() {
             </div>
           )}
         </div>
+      </div>
 
-        <div style={{ marginBottom: isMobile ? 28 : 0 }}>
-          <div style={sectionLabel}>7-Day Resolution Rate</div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 80 }}>
-            {RESOLUTION_TREND.map(d => (
-              <div key={d.day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, height: "100%", justifyContent: "flex-end" }}>
-                <span style={{ fontSize: 9, color: "var(--text-muted)", fontFamily: "monospace" }}>{d.pct}%</span>
-                <div style={{ width: "100%", background: "#16a34a", borderRadius: "2px 2px 0 0", height: `${d.pct}%`, opacity: 0.8 }} />
-                <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{d.day}</span>
+      {/* Row 2: Requests by Status (pie/list) + Response Summary — equal height cards */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20 }}>
+        <div style={{ padding: "16px 18px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)" }}>
+          <div style={sectionLabel}>Requests by Status</div>
+          {[
+            { label: "Pending / Unassigned", value: requests.filter(r => r.status === "Pending").length, color: STATUS_COLOR["Pending"] },
+            { label: "Assigned / In Progress", value: requests.filter(r => r.status === "Assigned" || r.status === "In Progress").length, color: STATUS_COLOR["Assigned"] },
+            { label: "Resolved", value: resolvedRequests.length, color: STATUS_COLOR["Resolved"] },
+          ].map(s => {
+            const pct = requests.length > 0 ? Math.round((s.value / requests.length) * 100) : 0;
+            return (
+              <div key={s.label} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.label}</span>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "monospace" }}>{s.value} ({pct}%)</span>
+                </div>
+                <div style={{ height: 6, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`, background: s.color, borderRadius: 3 }} />
+                </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
 
-        <div>
+        <div style={{ padding: "16px 18px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--surface)" }}>
           <div style={sectionLabel}>Response Summary</div>
           {[
             { label: "Total Requests", value: requests.length },
+            { label: "Active (unresolved)", value: activeRequests.length },
             { label: "Pending / Unassigned", value: requests.filter(r => r.status === "Pending").length },
             { label: "Assigned / In Progress", value: requests.filter(r => r.status === "Assigned" || r.status === "In Progress").length },
             { label: "Resolved", value: resolvedRequests.length },
+            { label: "SOS Emergencies", value: requests.filter(r => r.need_type === "SOS - Emergency").length },
           ].map(s => (
-            <div key={s.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>
+            <div key={s.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
               <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.label}</span>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", fontFamily: "monospace" }}>{s.value}</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", fontFamily: "monospace" }}>{s.value}</span>
             </div>
           ))}
         </div>
@@ -1257,8 +1207,7 @@ export default function CoordinatorPage() {
       {/* ── Content area ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {!isMobile && (
-          <div style={{ width: 240, borderRight: "1px solid var(--border)", padding: "16px", overflowY: "auto", flexShrink: 0, background: "var(--bg)" }}>
-            {disasterSelector}
+          <div style={{ width: 200, borderRight: "1px solid var(--border)", padding: "16px", overflowY: "auto", flexShrink: 0, background: "var(--bg)" }}>
             {systemStatus}
           </div>
         )}
