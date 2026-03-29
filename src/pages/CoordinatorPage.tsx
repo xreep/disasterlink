@@ -1,12 +1,18 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import { Sun, Moon, Lock, Shield, LogOut, Plus, Minus, WifiOff } from "lucide-react";
 import { useDisaster } from "../DisasterContext";
 import { useTheme } from "../ThemeContext";
 import { supabase, type HelpRequest, type Volunteer, type Resource } from "../lib/supabase";
 import type { User } from "@supabase/supabase-js";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
+
+function MapResizer() {
+  const map = useMap();
+  useEffect(() => { map.invalidateSize(); });
+  return null;
+}
 
 // ─── Coordinator cache ────────────────────────────────────────────────────────
 
@@ -570,14 +576,18 @@ export default function CoordinatorPage() {
     setActiveTab(tab);
   }
 
-  const filteredMapRequests = useMemo(() =>
-    requests.filter(r => r.latitude != null && r.longitude != null).filter(r => {
-      if (mapFilter === "All") return true;
-      if (mapFilter === "Critical") return r.severity === "Critical";
-      if (mapFilter === "Active") return r.status !== "Resolved";
-      return true;
-    }),
-  [requests, mapFilter]);
+  const filteredMapRequests = useMemo(() => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return requests
+      .filter(r => r.latitude != null && r.longitude != null)
+      .filter(r => new Date(r.created_at).getTime() >= cutoff)
+      .filter(r => {
+        if (mapFilter === "All") return true;
+        if (mapFilter === "Critical") return r.severity === "Critical";
+        if (mapFilter === "Active") return r.status !== "Resolved";
+        return true;
+      });
+  }, [requests, mapFilter]);
 
   const filteredReqList = useMemo(() =>
     requests.filter(r => {
@@ -691,8 +701,15 @@ export default function CoordinatorPage() {
           </div>
         ))}
       </div>
-      <div style={{ flex: 1 }}>
-        <MapContainer center={[20.5937, 78.9629]} zoom={5} style={{ height: "100%", width: "100%", background: "#111" }} zoomControl>
+      <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+        <MapContainer
+          key="disasterlink-map"
+          center={[20.5937, 78.9629]}
+          zoom={5}
+          style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+          zoomControl
+        >
+          <MapResizer />
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution='&copy; <a href="https://carto.com/">CARTO</a>' />
           {filteredMapRequests.map(r => (
             <CircleMarker key={r.id} center={[r.latitude!, r.longitude!]}
@@ -757,6 +774,11 @@ export default function CoordinatorPage() {
           })}
         </MapContainer>
       </div>
+      <div style={{ height: 30, display: "flex", alignItems: "center", padding: "0 16px", background: "var(--bg)", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          Map shows requests from the last 24 hours · All requests are visible in the Requests tab
+        </span>
+      </div>
     </div>
   );
 
@@ -801,13 +823,34 @@ export default function CoordinatorPage() {
             {isMobile ? (
               <div>
                 <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{r.need_type}</div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.location_district}, {r.location_state}</div>
+                {(() => {
+                  const bad = (s: string | null) => !s || s.startsWith("Locating") || s.startsWith("Unknown");
+                  if (bad(r.location_state) && r.latitude != null && r.longitude != null) {
+                    return <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>📍 {r.latitude}°N, {r.longitude}°E</div>;
+                  }
+                  return <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.location_district}, {r.location_state}</div>;
+                })()}
               </div>
             ) : (
               <>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{r.location_district}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.location_state}</div>
+                  {(() => {
+                    const bad = (s: string | null) => !s || s.startsWith("Locating") || s.startsWith("Unknown");
+                    if (bad(r.location_state) && r.latitude != null && r.longitude != null) {
+                      return (
+                        <>
+                          <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)", fontFamily: "monospace" }}>📍 {r.latitude}°N</div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>{r.longitude}°E</div>
+                        </>
+                      );
+                    }
+                    return (
+                      <>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text)" }}>{r.location_district}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.location_state}</div>
+                      </>
+                    );
+                  })()}
                 </div>
                 <Badge label={r.need_type} color={NEED_COLOR[r.need_type] || "#525252"} />
                 <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text)", fontFamily: "monospace" }}>{r.people}</span>

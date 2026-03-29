@@ -17,6 +17,27 @@ import { SOSCountdown } from "../components/SOSCountdown";
 
 type SOSState = "idle" | "locating" | "sent" | "offline" | "denied" | "error";
 
+async function reverseGeocode(lat: number, lng: number): Promise<{ state: string; district: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+      { signal: controller.signal, headers: { "Accept-Language": "en" } }
+    );
+    if (!resp.ok) throw new Error("bad response");
+    const data = await resp.json();
+    const addr = data.address || {};
+    const state: string = addr.state || "Unknown State";
+    const district: string = addr.district || addr.county || addr.city || addr.town || addr.suburb || addr.village || "Unknown District";
+    return { state, district };
+  } catch {
+    return { state: "Unknown State", district: "Unknown District" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function generateSOSId() {
   return `SOS-${Math.floor(10000 + Math.random() * 90000)}`;
 }
@@ -135,15 +156,21 @@ export default function ReportPage() {
 
     setSOSState("locating");
 
-    async function submitWithCoords(lat: number | null, lng: number | null, gpsStr: string) {
+    async function submitWithCoords(
+      lat: number | null,
+      lng: number | null,
+      gpsStr: string,
+      locationState = "Unknown State",
+      locationDistrict = "Unknown District"
+    ) {
       const payload = {
         id,
         victim_name: victimName,
         victim_phone: victimPhone,
         need_type: "SOS - Emergency",
         description: buildDescription(gpsStr),
-        location_state: "Locating...",
-        location_district: "Locating...",
+        location_state: locationState,
+        location_district: locationDistrict,
         latitude: lat,
         longitude: lng,
         severity: "Critical",
@@ -168,7 +195,8 @@ export default function ReportPage() {
       async (pos) => {
         const lat = +pos.coords.latitude.toFixed(5);
         const lng = +pos.coords.longitude.toFixed(5);
-        await submitWithCoords(lat, lng, `${lat}°N ${lng}°E`);
+        const { state, district } = await reverseGeocode(lat, lng);
+        await submitWithCoords(lat, lng, `${lat}°N ${lng}°E`, state, district);
       },
       async () => {
         await submitWithCoords(null, null, "denied");
